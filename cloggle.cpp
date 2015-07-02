@@ -11,6 +11,15 @@
 
 #include "constants.h"
 
+extern "C" {
+#define uchar unsigned char
+#define ushort unsigned short
+#define kernel
+#define constant
+#define global
+#include "res/cloggle.cl"
+}
+
 #define CL_USE_DEPRECATED_OPENCL_2_0_APIS
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
@@ -98,19 +107,6 @@ struct TrieNode {
         for (auto& e : edges) e.second->traverseDF(visit);
     }
 
-    void dumpToJSON(std::ostream& os) {
-        os << "{";
-        //os << "\"terminal\":" << (terminal ? "\"true\"" : "\"false\"") << ",";
-        os << "\"score\":" << score << ",";
-        os << "\"edges\": {"; 
-        for(auto it = edges.begin(); it != edges.end(); ++it) {
-            if (it != edges.begin()) os << ",";
-            os << "\"" << (char)it->first << "\":";
-            it->second->dumpToJSON(os);
-        }
-        os << "}}";
-    }
-
     void createTrie(const std::string& dict) {
         size_t pos = 0;
         while (dict[pos]) {
@@ -151,7 +147,7 @@ const char* TEST_STRINGS =
 "rlipbegarohnitetcesneradi"
 ;
 
-const unsigned short TEST_SCORES[] = {
+std::vector<unsigned short> TEST_SCORES = {
 639,
 46,
 611,
@@ -159,7 +155,7 @@ const unsigned short TEST_SCORES[] = {
 601,
 45,
 617,
-512,
+521,
 202,
 609
 };
@@ -196,6 +192,12 @@ int main() {
     }
 
     Boggle boggle;
+
+    std::vector<unsigned short> scores(GENE_POOL_SIZE);
+    std::string genes = TEST_STRINGS;
+
+    grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], (const char*)&boggle.neighbors, (char*)genes.c_str(), &scores[0]); 
+
     
     cl_platform_id platform_id = NULL;
     cl_uint ret_num_platforms;
@@ -230,15 +232,15 @@ int main() {
         std::cout << log << std::endl << std::flush;
     }
 
-    cl_kernel kernel = clCreateKernel(program, "grind", &ret);
+    cl_kernel kern = clCreateKernel(program, "grind", &ret);
 
-    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&d_trie_nodes);
-    ret = clSetKernelArg(kernel, 1, sizeof(int),    (void*)&numNodes);
-    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*)&d_trie_edge_labels);
-    ret = clSetKernelArg(kernel, 3, sizeof(cl_mem), (void*)&d_trie_edge_targets);
-    ret = clSetKernelArg(kernel, 4, sizeof(cl_mem), (void*)&d_cell_neighbors);
-    ret = clSetKernelArg(kernel, 5, sizeof(cl_mem), (void*)&d_gene_pool);
-    ret = clSetKernelArg(kernel, 6, sizeof(cl_mem), (void*)&d_scores);
+    ret = clSetKernelArg(kern, 0, sizeof(cl_mem), (void*)&d_trie_nodes);
+    ret = clSetKernelArg(kern, 1, sizeof(int),    (void*)&numNodes);
+    ret = clSetKernelArg(kern, 2, sizeof(cl_mem), (void*)&d_trie_edge_labels);
+    ret = clSetKernelArg(kern, 3, sizeof(cl_mem), (void*)&d_trie_edge_targets);
+    ret = clSetKernelArg(kern, 4, sizeof(cl_mem), (void*)&d_cell_neighbors);
+    ret = clSetKernelArg(kern, 5, sizeof(cl_mem), (void*)&d_gene_pool);
+    ret = clSetKernelArg(kern, 6, sizeof(cl_mem), (void*)&d_scores);
 
 
     ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes,         CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
@@ -249,16 +251,20 @@ int main() {
 
     ret = clFinish(command_queue);
 
-    ret = clEnqueueTask(command_queue, kernel, 0, NULL, NULL);
+    ret = clEnqueueTask(command_queue, kern, 0, NULL, NULL);
 
-    unsigned short score;
+    std::vector<unsigned short> cl_scores(GENE_POOL_SIZE);
     char best_board[BOARD_SIZE];
-    ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, sizeof(unsigned short), &score, 0, NULL, NULL);
+    ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, GENE_POOL_SIZE*sizeof(unsigned short), &cl_scores[0], 0, NULL, NULL);
     ret = clEnqueueReadBuffer(command_queue, d_gene_pool, CL_TRUE, 0, BOARD_SIZE*sizeof(unsigned char), best_board, 0, NULL, NULL);
+
+    assert(scores == cl_scores);
+    assert(cl_scores == TEST_SCORES);
 
     ret = clFlush(command_queue);
     ret = clFinish(command_queue);
-    ret = clReleaseKernel(kernel);
+
+    ret = clReleaseKernel(kern);
     ret = clReleaseProgram(program);
     ret = clReleaseMemObject(d_trie_nodes);
     ret = clReleaseMemObject(d_trie_edge_labels);

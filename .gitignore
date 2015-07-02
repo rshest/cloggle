@@ -5,3 +5,6 @@
 /*.opensdf
 /x64/Debug
 /*.suo
+/x64/Release
+/*.psess
+/*.vsp
