@@ -31,6 +31,9 @@
     <Text Include="res\words.txt">
       <Filter>res</Filter>
     </Text>
+    <Text Include="notes.txt">
+      <Filter>Source Files</Filter>
+    </Text>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="constants.h">

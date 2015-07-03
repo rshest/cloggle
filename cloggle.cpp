@@ -14,9 +14,12 @@
 extern "C" {
 #define uchar unsigned char
 #define ushort unsigned short
+#define uint unsigned int
+#define ulong unsigned long long
 #define kernel
 #define constant
 #define global
+int get_global_id(int n) { return n; }
 #include "res/cloggle.cl"
 }
 
@@ -124,8 +127,6 @@ struct TrieNodeCL
 };
 
 
-#define MEM_SIZE (128)
-
 std::string loadFile(const char* fileName) {
     std::ifstream f(fileName);
     std::stringstream buffer;
@@ -162,6 +163,9 @@ std::vector<unsigned short> TEST_SCORES = {
 
 int main() {
     std::string dict = loadFile("res/words.txt");
+    std::string dice = loadFile("res/dice.txt");
+    
+    Boggle boggle;
     TrieNode trie;
     trie.createTrie(dict);
 
@@ -191,12 +195,10 @@ int main() {
         }
     }
 
-    Boggle boggle;
-
     std::vector<unsigned short> scores(GENE_POOL_SIZE);
     std::string genes = TEST_STRINGS;
 
-    grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], (const char*)&boggle.neighbors, (char*)genes.c_str(), &scores[0]); 
+    grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(), (const char*)&boggle.neighbors, (char*)genes.c_str(), &scores[0]); 
 
     
     cl_platform_id platform_id = NULL;
@@ -211,6 +213,7 @@ int main() {
     cl_mem d_trie_nodes         = clCreateBuffer(context, CL_MEM_WRITE_ONLY, nodes.size()*sizeof(TrieNodeCL), NULL, &ret);
     cl_mem d_trie_edge_labels   = clCreateBuffer(context, CL_MEM_WRITE_ONLY, edgeLabels.size()*sizeof(char), NULL, &ret);
     cl_mem d_trie_edge_targets  = clCreateBuffer(context, CL_MEM_WRITE_ONLY, edgeTargets.size()*sizeof(unsigned short), NULL, &ret);
+    cl_mem d_dice               = clCreateBuffer(context, CL_MEM_WRITE_ONLY, (DIE_FACES + 1)*sizeof(char), NULL, &ret);
     cl_mem d_cell_neighbors     = clCreateBuffer(context, CL_MEM_WRITE_ONLY, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), NULL, &ret);
     
     cl_mem d_gene_pool          = clCreateBuffer(context, CL_MEM_READ_WRITE,  (BOARD_SIZE*GENE_POOL_SIZE)*sizeof(char), NULL, &ret);
@@ -229,7 +232,7 @@ int main() {
         std::string log;
         log.reserve(log_size);
         clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, &log[0], NULL);
-        std::cout << log << std::endl << std::flush;
+        std::cerr << log << std::endl << std::flush;
     }
 
     cl_kernel kern = clCreateKernel(program, "grind", &ret);
@@ -238,14 +241,16 @@ int main() {
     ret = clSetKernelArg(kern, 1, sizeof(int),    (void*)&numNodes);
     ret = clSetKernelArg(kern, 2, sizeof(cl_mem), (void*)&d_trie_edge_labels);
     ret = clSetKernelArg(kern, 3, sizeof(cl_mem), (void*)&d_trie_edge_targets);
-    ret = clSetKernelArg(kern, 4, sizeof(cl_mem), (void*)&d_cell_neighbors);
-    ret = clSetKernelArg(kern, 5, sizeof(cl_mem), (void*)&d_gene_pool);
-    ret = clSetKernelArg(kern, 6, sizeof(cl_mem), (void*)&d_scores);
+    ret = clSetKernelArg(kern, 4, sizeof(cl_mem), (void*)&d_dice);
+    ret = clSetKernelArg(kern, 5, sizeof(cl_mem), (void*)&d_cell_neighbors);
+    ret = clSetKernelArg(kern, 6, sizeof(cl_mem), (void*)&d_gene_pool);
+    ret = clSetKernelArg(kern, 7, sizeof(cl_mem), (void*)&d_scores);
 
 
     ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes,         CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_labels,   CL_TRUE, 0, edgeLabels.size()*sizeof(char), &edgeLabels[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_targets,  CL_TRUE, 0, edgeTargets.size()*sizeof(unsigned short), &edgeTargets[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_dice,               CL_TRUE, 0, (DIE_FACES + 1)*sizeof(char), &dice[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_cell_neighbors,     CL_TRUE, 0, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), &boggle.neighbors, 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_gene_pool,          CL_TRUE, 0, (BOARD_SIZE*GENE_POOL_SIZE)*sizeof(char), TEST_STRINGS, 0, NULL, NULL);
 

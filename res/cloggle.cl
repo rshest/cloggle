@@ -2,10 +2,13 @@
 #define MAX_NEIGHBORS 8
 #define MAX_WORD_LEN 16
 #define BOARD_SIDE 5
+#define DIE_FACES 6
 #define BOARD_SIZE BOARD_SIDE*BOARD_SIDE
 
+#define MAX_EPOCH 10000
 #define MAX_TRIE_SIZE 1200
 
+//  trie node
 typedef struct
 {
   uchar   score;          //  node score, assuming terminal if non-0
@@ -13,16 +16,34 @@ typedef struct
   ushort  edges_offset;   //  offset in the edge label/target arrays
 } Node;
 
+//  poor-man random number generator
+ulong _rnd_seed = 0x75821A23BCL;
+void srnd(ulong seed) { _rnd_seed = seed; }
+ulong rnd() { return _rnd_seed = (_rnd_seed*0x5DEECE66DL + 0xBL)&(((ulong)1 << 48) - 1); }
 
+//  shuffle array in-place (Fischer-Yites)
+void shuffle_board(char* board) {
+  for (int i = 0; i < BOARD_SIZE; i++) {
+    int swap_with = rnd()%(BOARD_SIZE - i);
+    char tmp = board[swap_with];
+    board[swap_with] = board[i];
+    board[i] = tmp;
+  }
+}
+
+//  main kernel entry
 kernel void grind(
   constant const Node*    g_trie_nodes, 
   int                     g_num_trie_nodes,
   constant const char*    g_trie_edge_labels,
   constant const ushort*  g_trie_edge_targets,
+  constant const char*    g_dice,
   constant const char*    g_cell_neighbors,
   global char*            g_gene_pool,
   global ushort*          g_scores)
 {
+  srnd(get_global_id(0));
+
   //  evaluate the boards
   for (int i = 0 ; i < GENE_POOL_SIZE; i++) {
     uchar visited_nodes[MAX_TRIE_SIZE] = {};
@@ -65,9 +86,8 @@ kernel void grind(
         }
           
         if (node >= 0) {
-          node_stack[depth] = node;
-
           //  go down, depth-first
+          node_stack[depth] = node;
           visited_faces[cell] = 1;
           int neighbor_cell = -1;
           do {

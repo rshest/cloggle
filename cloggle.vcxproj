@@ -157,6 +157,7 @@
     <None Include="res\cloggle.cl" />
   </ItemGroup>
   <ItemGroup>
+    <Text Include="notes.txt" />
     <Text Include="res\dice.txt" />
     <Text Include="res\words.txt" />
   </ItemGroup>
