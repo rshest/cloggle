@@ -5,7 +5,7 @@
 #define DIE_FACES 6
 #define BOARD_SIZE BOARD_SIDE*BOARD_SIDE
 
-#define MAX_EPOCH 10000
+#define MAX_EPOCH 1
 #define MAX_TRIE_SIZE 1200
 
 //  trie node
@@ -31,6 +31,10 @@ void shuffle_board(char* board) {
   }
 }
 
+void make_random_board(char* board, constant const char* g_dice) {
+
+}
+
 //  main kernel entry
 kernel void grind(
   constant const Node*    g_trie_nodes, 
@@ -44,72 +48,75 @@ kernel void grind(
 {
   srnd(get_global_id(0));
 
-  //  evaluate the boards
-  for (int i = 0 ; i < GENE_POOL_SIZE; i++) {
-    uchar visited_nodes[MAX_TRIE_SIZE] = {};
-    ushort score = 0;
+  for (int epoch = 0; epoch < MAX_EPOCH; epoch++) {
 
-    for (int j = 0; j < BOARD_SIZE; j++) {
-      //  "recursively" depth-first search inside the trie and bard in parallel
-      uchar visited_faces[BOARD_SIZE] = {};
+    //  evaluate the boards
+    for (int i = 0 ; i < GENE_POOL_SIZE; i++) {
+      uchar visited_nodes[MAX_TRIE_SIZE] = {};
+      ushort score = 0;
 
-      uchar cell_stack[MAX_WORD_LEN];
-      ushort node_stack[MAX_WORD_LEN];
-      uchar cur_neighbor_stack[MAX_WORD_LEN];
+      for (int j = 0; j < BOARD_SIZE; j++) {
+        //  "recursively" depth-first search inside the trie and bard in parallel
+        uchar visited_faces[BOARD_SIZE] = {};
+
+        uchar cell_stack[MAX_WORD_LEN];
+        ushort node_stack[MAX_WORD_LEN];
+        uchar cur_neighbor_stack[MAX_WORD_LEN];
       
-      int depth = 0;
+        int depth = 0;
 
-      cell_stack[0] = j;
-      node_stack[0] = 0;
-      cur_neighbor_stack[0] = 0;
-      visited_faces[0] = 0;
+        cell_stack[0] = j;
+        node_stack[0] = 0;
+        cur_neighbor_stack[0] = 0;
+        visited_faces[0] = 0;
 
-      do {
-        int cell = cell_stack[depth];
-        int node = node_stack[depth];
-        bool backtrack = true;
-        if (cur_neighbor_stack[depth] == 0) {
-          //  find the outgoing edge, corresponding to the current cell
-          char c = g_gene_pool[cell + BOARD_SIZE*i];
-          int edge_offs = g_trie_nodes[node].edges_offset;
-          int num_edges = (int)g_trie_nodes[node].num_edges;
-          node = -1;
-          for (int k = 0; k < num_edges; k++) {
-            if (g_trie_edge_labels[edge_offs + k] == c) {
-              node = g_trie_edge_targets[edge_offs + k];
-              //  the prefix is also may be a full word, add the score
-              score += (ushort)g_trie_nodes[node].score*(1 - (visited_nodes[node/8] >> (node%8))&1);
-              visited_nodes[node/8] |= (1 << (node%8));
-              break;
+        do {
+          int cell = cell_stack[depth];
+          int node = node_stack[depth];
+          bool backtrack = true;
+          if (cur_neighbor_stack[depth] == 0) {
+            //  find the outgoing edge, corresponding to the current cell
+            char c = g_gene_pool[cell + BOARD_SIZE*i];
+            int edge_offs = g_trie_nodes[node].edges_offset;
+            int num_edges = (int)g_trie_nodes[node].num_edges;
+            node = -1;
+            for (int k = 0; k < num_edges; k++) {
+              if (g_trie_edge_labels[edge_offs + k] == c) {
+                node = g_trie_edge_targets[edge_offs + k];
+                //  the prefix also may be a full word, add the score
+                score += (ushort)g_trie_nodes[node].score*(1 - (visited_nodes[node/8] >> (node%8))&1);
+                visited_nodes[node/8] |= (1 << (node%8));
+                break;
+              }
             }
           }
-        }
           
-        if (node >= 0) {
-          //  go down, depth-first
-          node_stack[depth] = node;
-          visited_faces[cell] = 1;
-          int neighbor_cell = -1;
-          do {
-            neighbor_cell = g_cell_neighbors[cur_neighbor_stack[depth] + (MAX_NEIGHBORS + 1)*cell];
-            cur_neighbor_stack[depth]++;
-          } while (neighbor_cell >= 0 && visited_faces[neighbor_cell]);
-
-          if (neighbor_cell > -1) {
-            backtrack = false;
-            depth++;
-            cell_stack[depth] = neighbor_cell;
+          if (node >= 0) {
+            //  go down, depth-first
             node_stack[depth] = node;
-            cur_neighbor_stack[depth] = 0;
-          }
-        } 
+            visited_faces[cell] = 1;
+            int neighbor_cell = -1;
+            do {
+              neighbor_cell = g_cell_neighbors[cur_neighbor_stack[depth] + (MAX_NEIGHBORS + 1)*cell];
+              cur_neighbor_stack[depth]++;
+            } while (neighbor_cell >= 0 && visited_faces[neighbor_cell]);
+
+            if (neighbor_cell > -1) {
+              backtrack = false;
+              depth++;
+              cell_stack[depth] = neighbor_cell;
+              node_stack[depth] = node;
+              cur_neighbor_stack[depth] = 0;
+            }
+          } 
         
-        if (backtrack) {
-          visited_faces[cell] = 0;
-          depth--;
-        }
-      } while (depth >= 0);
+          if (backtrack) {
+            visited_faces[cell] = 0;
+            depth--;
+          }
+        } while (depth >= 0);
+      }
+      g_scores[i] = score;
     }
-    g_scores[i] = score;
   }
 }

@@ -263,11 +263,11 @@ int main() {
     ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, GENE_POOL_SIZE*sizeof(unsigned short), &cl_scores[0], 0, NULL, NULL);
     ret = clEnqueueReadBuffer(command_queue, d_gene_pool, CL_TRUE, 0, BOARD_SIZE*sizeof(unsigned char), best_board, 0, NULL, NULL);
 
-    assert(scores == cl_scores);
-    assert(cl_scores == TEST_SCORES);
-
     ret = clFlush(command_queue);
     ret = clFinish(command_queue);
+
+    assert(scores == cl_scores);
+    assert(cl_scores == TEST_SCORES);
 
     ret = clReleaseKernel(kern);
     ret = clReleaseProgram(program);
