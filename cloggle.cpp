@@ -20,6 +20,8 @@ extern "C" {
 #define constant
 #define global
 int get_global_id(int n) { return n; }
+int get_local_id(int n) { return n; }
+int get_global_size(int n) { return n; }
 #include "res/cloggle.cl"
 }
 
@@ -30,6 +32,8 @@ int get_global_id(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
+const int NUM_CL_THREADS = 1000;
+const int NUM_CL_ITERATIONS = 1000;
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {
         {0, -1}, {1, -1}, {1, 0}, {1, 1}, 
@@ -161,6 +165,76 @@ std::vector<unsigned short> TEST_SCORES = {
 609
 };
 
+void printPlatformInfo(cl_platform_id platform_id) {
+  char* info;
+  size_t infoSize;
+  const char* attributeNames[5] = { "Name", "Vendor", "Version", "Profile", "Extensions" };
+  const cl_platform_info attributeTypes[5] = { CL_PLATFORM_NAME, CL_PLATFORM_VENDOR,
+      CL_PLATFORM_VERSION, CL_PLATFORM_PROFILE, CL_PLATFORM_EXTENSIONS };
+  const int attributeCount = sizeof(attributeNames) / sizeof(char*);
+ 
+  for (int j = 0; j < attributeCount; j++) {
+    // get platform attribute value size
+    clGetPlatformInfo(platform_id, attributeTypes[j], 0, NULL, &infoSize);
+    info = (char*) malloc(infoSize);
+ 
+    // get platform attribute value
+    clGetPlatformInfo(platform_id, attributeTypes[j], infoSize, info, NULL);
+ 
+    printf("  %-11s: %s\n", attributeNames[j], info);
+    free(info);
+  }
+}
+
+void printDeviceInfo(cl_device_id device) {
+    char* value;
+    size_t valueSize;
+    cl_uint maxComputeUnits;
+    
+    // print device name
+    clGetDeviceInfo(device, CL_DEVICE_NAME, 0, NULL, &valueSize);
+    value = (char*) malloc(valueSize);
+    clGetDeviceInfo(device, CL_DEVICE_NAME, valueSize, value, NULL);
+    printf("Device: %s\n", value);
+    free(value);
+ 
+    // print hardware device version
+    clGetDeviceInfo(device, CL_DEVICE_VERSION, 0, NULL, &valueSize);
+    value = (char*) malloc(valueSize);
+    clGetDeviceInfo(device, CL_DEVICE_VERSION, valueSize, value, NULL);
+    printf(" Hardware version: %s\n", value);
+    free(value);
+ 
+    // print software driver version
+    clGetDeviceInfo(device, CL_DRIVER_VERSION, 0, NULL, &valueSize);
+    value = (char*) malloc(valueSize);
+    clGetDeviceInfo(device, CL_DRIVER_VERSION, valueSize, value, NULL);
+    printf(" Software version: %s\n", value);
+    free(value);
+ 
+    // print c version supported by compiler for device
+    clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, 0, NULL, &valueSize);
+    value = (char*) malloc(valueSize);
+    clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, valueSize, value, NULL);
+    printf(" OpenCL C version: %s\n", value);
+    free(value);
+ 
+    // print parallel compute units
+    clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS,
+            sizeof(maxComputeUnits), &maxComputeUnits, NULL);
+    printf(" Parallel compute units: %d\n", maxComputeUnits);
+
+    size_t maxWorkGroupSize;
+    clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE,
+            sizeof(maxWorkGroupSize), &maxWorkGroupSize, NULL);
+    printf(" Max work group size: %d\n", maxWorkGroupSize);
+
+    size_t workitem_size[3];
+    clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_SIZES,
+            sizeof(workitem_size), &workitem_size, NULL);
+    printf(" Work item size: %d\n", workitem_size[0]);
+}
+
 int main() {
     std::string dict = loadFile("res/words.txt");
     std::string dice = loadFile("res/dice.txt");
@@ -198,22 +272,36 @@ int main() {
     std::vector<unsigned short> scores(GENE_POOL_SIZE);
     std::string genes = TEST_STRINGS;
 
-    grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(), (const char*)&boggle.neighbors, (char*)genes.c_str(), &scores[0]); 
+    eval((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(), (const char*)&boggle.neighbors, (char*)genes.c_str(), &scores[0]); 
 
     
-    cl_platform_id platform_id = NULL;
+    cl_platform_id platform_ids[8] = {};
     cl_uint ret_num_platforms;
-    cl_int ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
-    cl_device_id device_id = NULL;
+    cl_int ret = clGetPlatformIDs(8, platform_ids, &ret_num_platforms);
+    for (cl_uint i = 0; i < ret_num_platforms; i++) {
+        printf("Platform %d:", i);
+        printPlatformInfo(platform_ids[i]);
+    }
+
+    cl_platform_id platform_id = platform_ids[0];
+    cl_device_id device_ids[8] = {};
     cl_uint ret_num_devices;
-    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 1, &device_id, &ret_num_devices);
+    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_ALL, 8, device_ids, &ret_num_devices);
+    for (cl_uint i = 0; i < ret_num_devices; i++) {
+        printf("Device %d:", i);
+        printDeviceInfo(device_ids[i]);
+    }
+
+    cl_device_id device_id;
+    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
+    
     cl_context context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);   
-    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, 0, &ret);
+    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &ret);
 
     cl_mem d_trie_nodes         = clCreateBuffer(context, CL_MEM_WRITE_ONLY, nodes.size()*sizeof(TrieNodeCL), NULL, &ret);
     cl_mem d_trie_edge_labels   = clCreateBuffer(context, CL_MEM_WRITE_ONLY, edgeLabels.size()*sizeof(char), NULL, &ret);
     cl_mem d_trie_edge_targets  = clCreateBuffer(context, CL_MEM_WRITE_ONLY, edgeTargets.size()*sizeof(unsigned short), NULL, &ret);
-    cl_mem d_dice               = clCreateBuffer(context, CL_MEM_WRITE_ONLY, (DIE_FACES + 1)*sizeof(char), NULL, &ret);
+    cl_mem d_dice               = clCreateBuffer(context, CL_MEM_WRITE_ONLY, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), NULL, &ret);
     cl_mem d_cell_neighbors     = clCreateBuffer(context, CL_MEM_WRITE_ONLY, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), NULL, &ret);
     
     cl_mem d_gene_pool          = clCreateBuffer(context, CL_MEM_READ_WRITE,  (BOARD_SIZE*GENE_POOL_SIZE)*sizeof(char), NULL, &ret);
@@ -235,7 +323,7 @@ int main() {
         std::cerr << log << std::endl << std::flush;
     }
 
-    cl_kernel kern = clCreateKernel(program, "grind", &ret);
+    cl_kernel kern = clCreateKernel(program, "eval", &ret);
 
     ret = clSetKernelArg(kern, 0, sizeof(cl_mem), (void*)&d_trie_nodes);
     ret = clSetKernelArg(kern, 1, sizeof(int),    (void*)&numNodes);
@@ -250,7 +338,7 @@ int main() {
     ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes,         CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_labels,   CL_TRUE, 0, edgeLabels.size()*sizeof(char), &edgeLabels[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_targets,  CL_TRUE, 0, edgeTargets.size()*sizeof(unsigned short), &edgeTargets[0], 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_dice,               CL_TRUE, 0, (DIE_FACES + 1)*sizeof(char), &dice[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_dice,               CL_TRUE, 0, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), &dice[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_cell_neighbors,     CL_TRUE, 0, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), &boggle.neighbors, 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_gene_pool,          CL_TRUE, 0, (BOARD_SIZE*GENE_POOL_SIZE)*sizeof(char), TEST_STRINGS, 0, NULL, NULL);
 
@@ -259,17 +347,59 @@ int main() {
     ret = clEnqueueTask(command_queue, kern, 0, NULL, NULL);
 
     std::vector<unsigned short> cl_scores(GENE_POOL_SIZE);
-    char best_board[BOARD_SIZE];
     ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, GENE_POOL_SIZE*sizeof(unsigned short), &cl_scores[0], 0, NULL, NULL);
-    ret = clEnqueueReadBuffer(command_queue, d_gene_pool, CL_TRUE, 0, BOARD_SIZE*sizeof(unsigned char), best_board, 0, NULL, NULL);
 
     ret = clFlush(command_queue);
     ret = clFinish(command_queue);
 
-    assert(scores == cl_scores);
     assert(cl_scores == TEST_SCORES);
+    assert(scores == cl_scores);
+
+
+    cl_kernel kern_grind = clCreateKernel(program, "grind", &ret);
+    cl_mem d_best_boards = clCreateBuffer(context, CL_MEM_READ_ONLY,  (BOARD_SIZE*NUM_CL_THREADS)*sizeof(char), NULL, &ret);
+    cl_mem d_best_scores = clCreateBuffer(context, CL_MEM_READ_ONLY,  NUM_CL_THREADS*sizeof(unsigned short), NULL, &ret);
+
+    ret = clSetKernelArg(kern_grind, 0, sizeof(cl_mem), (void*)&d_trie_nodes);
+    ret = clSetKernelArg(kern_grind, 1, sizeof(int),    (void*)&numNodes);
+    ret = clSetKernelArg(kern_grind, 2, sizeof(cl_mem), (void*)&d_trie_edge_labels);
+    ret = clSetKernelArg(kern_grind, 3, sizeof(cl_mem), (void*)&d_trie_edge_targets);
+    ret = clSetKernelArg(kern_grind, 4, sizeof(cl_mem), (void*)&d_dice);
+    ret = clSetKernelArg(kern_grind, 5, sizeof(cl_mem), (void*)&d_cell_neighbors);
+    ret = clSetKernelArg(kern_grind, 6, sizeof(cl_mem), (void*)&d_best_boards);
+    ret = clSetKernelArg(kern_grind, 7, sizeof(cl_mem), (void*)&d_best_scores);
+
+    size_t globalWorkSize[] = {NUM_CL_THREADS};
+
+    std::vector<char> best_boards(BOARD_SIZE*NUM_CL_THREADS);
+    std::vector<unsigned short> best_scores(NUM_CL_THREADS);
+    std::string best_board;
+
+    unsigned short best_score = 0;
+
+    for (int i = 0; i < NUM_CL_ITERATIONS; i++) {
+        int offset = i*NUM_CL_THREADS;
+        ret = clSetKernelArg(kern_grind, 8, sizeof(int), (void*)&offset);
+        ret = clEnqueueNDRangeKernel(command_queue, kern_grind, 1, NULL, globalWorkSize, NULL, 0, NULL, NULL);
+        ret = clEnqueueReadBuffer(command_queue, d_best_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &best_scores[0], 0, NULL, NULL);
+        ret = clEnqueueReadBuffer(command_queue, d_best_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &best_boards[0], 0, NULL, NULL);
+    
+        auto mit = std::max_element(best_scores.begin(), best_scores.end());
+        if (*mit > best_score) {
+            best_score = *mit;
+            best_board = std::string(&best_boards[BOARD_SIZE*(mit - best_scores.begin())], BOARD_SIZE);
+        }
+        printf("Score: %d, board: %s, best score: %d\n", *mit, 
+            std::string(&best_boards[BOARD_SIZE*(mit - best_scores.begin())], BOARD_SIZE).c_str(),
+            best_score);
+    }
+
+    ret = clFlush(command_queue);
+    ret = clFinish(command_queue);
 
     ret = clReleaseKernel(kern);
+    ret = clReleaseKernel(kern_grind);
+
     ret = clReleaseProgram(program);
     ret = clReleaseMemObject(d_trie_nodes);
     ret = clReleaseMemObject(d_trie_edge_labels);
