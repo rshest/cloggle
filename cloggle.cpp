@@ -8,6 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include <iostream>
+#include <chrono>
 
 #include "constants.h"
 
@@ -32,8 +33,8 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS = 1000;
-const int NUM_CL_ITERATIONS = 1000;
+const int NUM_CL_THREADS = 20000;
+const int NUM_CL_ITERATIONS = 100000;
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {
         {0, -1}, {1, -1}, {1, 0}, {1, 1}, 
@@ -377,6 +378,7 @@ int main() {
 
     unsigned short best_score = 0;
 
+    auto t1 = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < NUM_CL_ITERATIONS; i++) {
         int offset = i*NUM_CL_THREADS;
         ret = clSetKernelArg(kern_grind, 8, sizeof(int), (void*)&offset);
@@ -389,9 +391,12 @@ int main() {
             best_score = *mit;
             best_board = std::string(&best_boards[BOARD_SIZE*(mit - best_scores.begin())], BOARD_SIZE);
         }
-        printf("Score: %d, board: %s, best score: %d\n", *mit, 
+        auto t2 = std::chrono::high_resolution_clock::now();
+        printf("step: %d, score: %d, board: %s, best: %d %s, time: %dms\n", i, *mit, 
             std::string(&best_boards[BOARD_SIZE*(mit - best_scores.begin())], BOARD_SIZE).c_str(),
-            best_score);
+            best_score,
+            best_board.c_str(),
+            std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
     }
 
     ret = clFlush(command_queue);

@@ -129,10 +129,13 @@ kernel void eval(
   global ushort*          g_scores)
 {
   char board[BOARD_SIZE];
-  for (int i = 0 ; i < GENE_POOL_SIZE; i++) {
-    for (int j = 0; j < BOARD_SIZE; j++) board[j] = g_gene_pool[i*BOARD_SIZE + j];
+  for (int i = 0; i < GENE_POOL_SIZE; i++) {
+    for (int j = 0; j < BOARD_SIZE; j++) {
+      board[j] = g_gene_pool[i*BOARD_SIZE + j];
+    }
+
     g_scores[i] = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
-      g_dice, g_cell_neighbors, board);
+                             g_dice, g_cell_neighbors, board);
   }
 }
 
@@ -150,16 +153,15 @@ kernel void grind(
 {
   int id = get_global_id(0);
 
-  ulong seed = 0x7582123BCL + id + g_offset;
+  ulong seed = id + g_offset;
   char board[BOARD_SIZE];
   char best_board[BOARD_SIZE];
   ushort best_score = 0;
   
   for (int i = 0; i < MAX_EPOCH; i++) {
-    printf("Epoch: %d, id: %d", i, id);
     make_random_board(board, g_dice, &seed);
     ushort score = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
-      g_dice, g_cell_neighbors, board);
+                              g_dice, g_cell_neighbors, board);
     if (score > best_score) {
       best_score = score;
       for (int j = 0; j < BOARD_SIZE; j++) best_board[j] = board[j];
