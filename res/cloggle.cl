@@ -167,7 +167,10 @@ kernel void grind(
   int mutateType = rnd(&seed) % NUM_MUTATE_TYPES;
   
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
-  for (int i = 0; i < MAX_NEIGHBORS; i++) {
+
+  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES };
+  int n = MUTATE_STEPS[mutateType];
+  for (int i = 0; i < n; i++) {
     for (int j = 0; j < BOARD_SIZE; j++) {
       board[j] = g_boards[id*BOARD_SIZE + j];
     }
@@ -180,12 +183,11 @@ kernel void grind(
       board[pivot_cell] = g_boards[id*BOARD_SIZE + neighbor];
     } break;
     case MUTATE_SWAP_RANDOM: {
-      int c1 = rnd(&seed) % NUM_MUTATE_TYPES;
-      int c2 = rnd(&seed) % NUM_MUTATE_TYPES;
-      board[c1] = g_boards[id*BOARD_SIZE + c2];
-      board[c2] = g_boards[id*BOARD_SIZE + c1];
+      board[pivot_cell] = g_boards[id*BOARD_SIZE + i];
+      board[i] = g_boards[id*BOARD_SIZE + pivot_cell];
     } break;
     case MUTATE_ROLL_FACE: {
+
     } break;
     default: {}
     }

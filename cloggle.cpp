@@ -35,7 +35,7 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS = 250;
+const int NUM_CL_THREADS = 2500;
 const int NUM_CL_ITERATIONS = 100000;
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {
@@ -241,6 +241,7 @@ void printDeviceInfo(cl_device_id device) {
 int main() {
     std::string dict = loadFile("res/words.txt");
     std::string dice = loadFile("res/dice.txt");
+    dice.erase(std::remove(dice.begin(), dice.end(), '\n'), dice.end());
     
     Boggle boggle;
     TrieNode trie;
@@ -387,7 +388,7 @@ int main() {
     for (int i = 0; i < NUM_CL_THREADS; i++)
     {
       for (int j = 0; j < BOARD_SIZE; j++) {
-        boards[j + i*BOARD_SIZE] = dice[rnd()%DIE_FACES + (DIE_FACES + 1)*j];
+        boards[j + i*BOARD_SIZE] = dice[rnd()%DIE_FACES + DIE_FACES*j];
       }
       std::shuffle(pboards + i*BOARD_SIZE, pboards + (i + 1)*BOARD_SIZE, rnd);
     }
