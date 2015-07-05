@@ -6,6 +6,11 @@
 #define BOARD_SIZE (BOARD_SIDE*BOARD_SIDE)
 #define MAX_TRIE_SIZE 1100
 
+#define NUM_MUTATE_TYPES 3
+#define MUTATE_SWAP_RANDOM 0
+#define MUTATE_SWAP_NEIGHBORS 1
+#define MUTATE_ROLL_FACE 2
+
 //  trie node
 typedef struct
 {
@@ -158,16 +163,32 @@ kernel void grind(
   for (int j = 0; j < BOARD_SIZE; j++) {
     best_board[j] = g_boards[id*BOARD_SIZE + j];
   }
+
+  int mutateType = rnd(&seed) % NUM_MUTATE_TYPES;
   
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
   for (int i = 0; i < MAX_NEIGHBORS; i++) {
-    int neighbor = g_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
-    if (neighbor == -1) break;
     for (int j = 0; j < BOARD_SIZE; j++) {
       board[j] = g_boards[id*BOARD_SIZE + j];
     }
-    board[neighbor] = g_boards[id*BOARD_SIZE + pivot_cell];
-    board[pivot_cell] = g_boards[id*BOARD_SIZE + neighbor];
+
+    switch (mutateType) {
+    case MUTATE_SWAP_NEIGHBORS: {
+      int neighbor = g_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
+      if (neighbor == -1) break;
+      board[neighbor] = g_boards[id*BOARD_SIZE + pivot_cell];
+      board[pivot_cell] = g_boards[id*BOARD_SIZE + neighbor];
+    } break;
+    case MUTATE_SWAP_RANDOM: {
+      int c1 = rnd(&seed) % NUM_MUTATE_TYPES;
+      int c2 = rnd(&seed) % NUM_MUTATE_TYPES;
+      board[c1] = g_boards[id*BOARD_SIZE + c2];
+      board[c2] = g_boards[id*BOARD_SIZE + c1];
+    } break;
+    case MUTATE_ROLL_FACE: {
+    } break;
+    default: {}
+    }
 
     ushort score = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
       g_dice, g_cell_neighbors, board);
