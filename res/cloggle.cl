@@ -50,7 +50,7 @@ ushort eval_board(
   constant const ushort*  g_trie_edge_targets,
   constant const char*    g_dice,
   constant const char*    g_cell_neighbors,
-  const char*             board
+  const uchar*            board
 ) {
   uchar visited_nodes[MAX_TRIE_SIZE] = {};
   ushort score = 0;
@@ -76,7 +76,7 @@ ushort eval_board(
       bool backtrack = true;
       if (cur_neighbor_stack[depth] == 0) {
         //  find the outgoing edge, corresponding to the current cell
-        char c = board[cell];
+        char c = g_dice[board[cell]];
         int edge_offs = g_trie_nodes[node].edges_offset;
         int num_edges = (int)g_trie_nodes[node].num_edges;
         node = -1;
@@ -127,14 +127,14 @@ kernel void eval(
   constant const ushort*  g_trie_edge_targets,
   constant const char*    g_dice,
   constant const char*    g_cell_neighbors,
-  global char*            g_gene_pool,
+  global uchar*           g_boards,
   global ushort*          g_scores,
   int                     g_num_boards)
 {
-  char board[BOARD_SIZE];
+  uchar board[BOARD_SIZE];
   for (int i = 0; i < g_num_boards; i++) {
     for (int j = 0; j < BOARD_SIZE; j++) {
-      board[j] = g_gene_pool[i*BOARD_SIZE + j];
+      board[j] = g_boards[i*BOARD_SIZE + j];
     }
 
     g_scores[i] = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
@@ -150,22 +150,21 @@ kernel void grind(
   constant const ushort*  g_trie_edge_targets,
   constant const char*    g_dice,
   constant const char*    g_cell_neighbors,
-  global char*            g_boards,
+  global uchar*           g_boards,
   global ushort*          g_scores,
   unsigned int            g_seed)
 {
   int id = get_global_id(0);
 
   ulong seed = id + g_seed;
-  char board[BOARD_SIZE];
-  char best_board[BOARD_SIZE];
+  uchar board[BOARD_SIZE];
+  uchar best_board[BOARD_SIZE];
   ushort best_score = g_scores[id];
   for (int j = 0; j < BOARD_SIZE; j++) {
     best_board[j] = g_boards[id*BOARD_SIZE + j];
   }
 
   int mutateType = rnd(&seed) % NUM_MUTATE_TYPES;
-  
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
 
   const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES };
@@ -187,7 +186,7 @@ kernel void grind(
       board[i] = g_boards[id*BOARD_SIZE + pivot_cell];
     } break;
     case MUTATE_ROLL_FACE: {
-
+      board[pivot_cell] = g_dice[i + (board[pivot_cell] / DIE_FACES)*DIE_FACES];
     } break;
     default: {}
     }

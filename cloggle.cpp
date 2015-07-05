@@ -35,7 +35,7 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS = 2500;
+const int NUM_CL_THREADS = 10000;
 const int NUM_CL_ITERATIONS = 100000;
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {
@@ -142,32 +142,6 @@ std::string loadFile(const char* fileName) {
     return buffer.str();
 }
 
-const char* TEST_STRINGS = 
-"herdotceinrntsveaioeglprq"
-"tteetteenntteaasregrbrere"
-"qsndviteeignrtsceainrplco"
-"imapeonerlcstairiencbdret"
-"renotvsticieraldgnephtcdb"
-"sgecaaremecgntdoyspjnoicd"
-"trplgeoiaevstnrniectodreq"
-"dhreqtecatsntsliaeioplrgn"
-"gdtteserethstanraigrtknee"
-"rlipbegarohnitetcesneradi"
-;
-
-std::vector<unsigned short> TEST_SCORES = {
-639,
-46,
-611,
-529,
-601,
-45,
-617,
-521,
-202,
-609
-};
-
 void printPlatformInfo(cl_platform_id platform_id) {
   char* info;
   size_t infoSize;
@@ -273,13 +247,6 @@ int main() {
             edgeTargets.push_back(edge.second->index);
         }
     }
-
-    std::vector<unsigned short> cpu_scores(GENE_POOL_SIZE);
-    std::string genes = TEST_STRINGS;
-
-    eval((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(), 
-      (const char*)&boggle.neighbors, (char*)genes.c_str(), &cpu_scores[0], genePoolSize);
-
     
     cl_platform_id platform_ids[8] = {};
     cl_uint ret_num_platforms;
@@ -310,9 +277,8 @@ int main() {
     cl_mem d_dice               = clCreateBuffer(context, CL_MEM_WRITE_ONLY, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), NULL, &ret);
     cl_mem d_cell_neighbors     = clCreateBuffer(context, CL_MEM_WRITE_ONLY, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), NULL, &ret);
     
-    cl_mem d_gene_pool          = clCreateBuffer(context, CL_MEM_READ_WRITE,  (BOARD_SIZE*GENE_POOL_SIZE)*sizeof(char), NULL, &ret);
-    cl_mem d_scores             = clCreateBuffer(context, CL_MEM_READ_ONLY,  GENE_POOL_SIZE*sizeof(unsigned short), NULL, &ret);
-
+    cl_mem d_boards             = clCreateBuffer(context, CL_MEM_READ_WRITE, (BOARD_SIZE*NUM_CL_THREADS)*sizeof(char), NULL, &ret);
+    cl_mem d_scores             = clCreateBuffer(context, CL_MEM_READ_WRITE, NUM_CL_THREADS*sizeof(unsigned short), NULL, &ret);
 
     std::string kernelCode = loadFile("res/cloggle.cl");
     const char* source_str = kernelCode.c_str();
@@ -329,43 +295,7 @@ int main() {
         std::cerr << log << std::endl << std::flush;
     }
 
-    cl_kernel kern = clCreateKernel(program, "eval", &ret);
-
-    ret = clSetKernelArg(kern, 0, sizeof(cl_mem), (void*)&d_trie_nodes);
-    ret = clSetKernelArg(kern, 1, sizeof(int),    (void*)&numNodes);
-    ret = clSetKernelArg(kern, 2, sizeof(cl_mem), (void*)&d_trie_edge_labels);
-    ret = clSetKernelArg(kern, 3, sizeof(cl_mem), (void*)&d_trie_edge_targets);
-    ret = clSetKernelArg(kern, 4, sizeof(cl_mem), (void*)&d_dice);
-    ret = clSetKernelArg(kern, 5, sizeof(cl_mem), (void*)&d_cell_neighbors);
-    ret = clSetKernelArg(kern, 6, sizeof(cl_mem), (void*)&d_gene_pool);
-    ret = clSetKernelArg(kern, 7, sizeof(cl_mem), (void*)&d_scores);
-    ret = clSetKernelArg(kern, 8, sizeof(int),    (void*)&genePoolSize);
-
-
-    ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes,         CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_labels,   CL_TRUE, 0, edgeLabels.size()*sizeof(char), &edgeLabels[0], 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_targets,  CL_TRUE, 0, edgeTargets.size()*sizeof(unsigned short), &edgeTargets[0], 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_dice,               CL_TRUE, 0, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), &dice[0], 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_cell_neighbors,     CL_TRUE, 0, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), &boggle.neighbors, 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_gene_pool,          CL_TRUE, 0, (BOARD_SIZE*GENE_POOL_SIZE)*sizeof(char), TEST_STRINGS, 0, NULL, NULL);
-
-    ret = clFinish(command_queue);
-
-    ret = clEnqueueTask(command_queue, kern, 0, NULL, NULL);
-
-    std::vector<unsigned short> cl_scores(GENE_POOL_SIZE);
-    ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, GENE_POOL_SIZE*sizeof(unsigned short), &cl_scores[0], 0, NULL, NULL);
-
-    ret = clFlush(command_queue);
-    ret = clFinish(command_queue);
-
-    assert(cl_scores == TEST_SCORES);
-    assert(cpu_scores == cl_scores);
-
-
     cl_kernel kern_grind = clCreateKernel(program, "grind", &ret);
-    cl_mem d_best_boards = clCreateBuffer(context, CL_MEM_READ_WRITE,  (BOARD_SIZE*NUM_CL_THREADS)*sizeof(char), NULL, &ret);
-    cl_mem d_best_scores = clCreateBuffer(context, CL_MEM_READ_ONLY,  NUM_CL_THREADS*sizeof(unsigned short), NULL, &ret);
 
     ret = clSetKernelArg(kern_grind, 0, sizeof(cl_mem), (void*)&d_trie_nodes);
     ret = clSetKernelArg(kern_grind, 1, sizeof(int),    (void*)&numNodes);
@@ -373,22 +303,21 @@ int main() {
     ret = clSetKernelArg(kern_grind, 3, sizeof(cl_mem), (void*)&d_trie_edge_targets);
     ret = clSetKernelArg(kern_grind, 4, sizeof(cl_mem), (void*)&d_dice);
     ret = clSetKernelArg(kern_grind, 5, sizeof(cl_mem), (void*)&d_cell_neighbors);
-    ret = clSetKernelArg(kern_grind, 6, sizeof(cl_mem), (void*)&d_best_boards);
-    ret = clSetKernelArg(kern_grind, 7, sizeof(cl_mem), (void*)&d_best_scores);
+    ret = clSetKernelArg(kern_grind, 6, sizeof(cl_mem), (void*)&d_boards);
+    ret = clSetKernelArg(kern_grind, 7, sizeof(cl_mem), (void*)&d_scores);
 
     size_t globalWorkSize[] = {NUM_CL_THREADS};
 
-    std::vector<char> boards(BOARD_SIZE*NUM_CL_THREADS);
+    std::vector<unsigned char> boards(BOARD_SIZE*NUM_CL_THREADS);
     std::vector<unsigned short> scores(NUM_CL_THREADS);
-    std::string best_board;
 
     //  randomly init the boards
     std::mt19937 rnd(1234567);
-    char* pboards = &boards[0];
+    unsigned char* pboards = &boards[0];
     for (int i = 0; i < NUM_CL_THREADS; i++)
     {
       for (int j = 0; j < BOARD_SIZE; j++) {
-        boards[j + i*BOARD_SIZE] = dice[rnd()%DIE_FACES + DIE_FACES*j];
+        boards[j + i*BOARD_SIZE] = rnd()%DIE_FACES + DIE_FACES*j;
       }
       std::shuffle(pboards + i*BOARD_SIZE, pboards + (i + 1)*BOARD_SIZE, rnd);
     }
@@ -397,10 +326,14 @@ int main() {
     eval((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(), 
       (const char*)&boggle.neighbors, &boards[0], &scores[0], NUM_CL_THREADS);
 
-    unsigned short best_score = 0;
+    ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes, CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_labels, CL_TRUE, 0, edgeLabels.size()*sizeof(char), &edgeLabels[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_targets, CL_TRUE, 0, edgeTargets.size()*sizeof(unsigned short), &edgeTargets[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_dice, CL_TRUE, 0, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), &dice[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_cell_neighbors, CL_TRUE, 0, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), &boggle.neighbors, 0, NULL, NULL);
 
-    ret = clEnqueueWriteBuffer(command_queue, d_best_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_best_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
 
     bool software = false;
 
@@ -411,33 +344,32 @@ int main() {
         if (!software) {
           ret = clSetKernelArg(kern_grind, 8, sizeof(unsigned int), (void*)&seed);
           ret = clEnqueueNDRangeKernel(command_queue, kern_grind, 1, NULL, globalWorkSize, NULL, 0, NULL, NULL);
-          ret = clEnqueueReadBuffer(command_queue, d_best_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
-          ret = clEnqueueReadBuffer(command_queue, d_best_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
+          ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
+          ret = clEnqueueReadBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
         }
         else {
           for (int j = 0; j < NUM_CL_THREADS; j++) {
             CLID = j;
             grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(),
-              (const char*)&boggle.neighbors, (char*)&boards[0], &scores[0], seed);
+              (const char*)&boggle.neighbors, (unsigned char*)&boards[0], &scores[0], seed);
           }
         }
+
         auto mit = std::max_element(scores.begin(), scores.end());
-        if (*mit > best_score) {
-            best_score = *mit;
-            best_board = std::string(&boards[BOARD_SIZE*(mit - scores.begin())], BOARD_SIZE);
+        std::vector<char> best_board(BOARD_SIZE + 1);
+        const unsigned char* pc = &boards[BOARD_SIZE*(mit - scores.begin())];
+        for (int j = 0; j < BOARD_SIZE; j++) {
+          best_board[j] = dice[pc[j]];
         }
+        best_board[BOARD_SIZE] = 0;
         auto t2 = std::chrono::high_resolution_clock::now();
-        printf("step: %d, score: %d, board: %s, best: %d %s, time: %dms\n", i, *mit, 
-          std::string(&boards[BOARD_SIZE*(mit - scores.begin())], BOARD_SIZE).c_str(),
-          best_score,
-          best_board.c_str(),
+        printf("step: %d, score: %d, board: %s, time: %dms\n", i, *mit, &best_board[0],
           std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
     }
 
     ret = clFlush(command_queue);
     ret = clFinish(command_queue);
 
-    ret = clReleaseKernel(kern);
     ret = clReleaseKernel(kern_grind);
 
     ret = clReleaseProgram(program);
@@ -445,8 +377,6 @@ int main() {
     ret = clReleaseMemObject(d_trie_edge_labels);
     ret = clReleaseMemObject(d_trie_edge_targets);
     ret = clReleaseMemObject(d_cell_neighbors);
-    ret = clReleaseMemObject(d_gene_pool);
-    ret = clReleaseMemObject(d_scores);
     ret = clReleaseCommandQueue(command_queue);
     ret = clReleaseContext(context);
 
