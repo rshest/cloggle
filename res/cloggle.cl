@@ -6,10 +6,17 @@
 #define BOARD_SIZE (BOARD_SIDE*BOARD_SIDE)
 #define MAX_TRIE_SIZE 1100
 
-#define NUM_MUTATE_TYPES 3
-#define MUTATE_SWAP_RANDOM 0
+#define NUM_MUTATE_TYPES      8
+
+#define MUTATE_SWAP_RANDOM    0
 #define MUTATE_SWAP_NEIGHBORS 1
-#define MUTATE_ROLL_FACE 2
+#define MUTATE_ROLL_FACE      2
+#define MUTATE_ROLL_FACE2     3
+#define MUTATE_SWAP_RANDOM3   4
+#define MUTATE_ROLL_RANDOM    5
+#define MUTATE_ROLL_RANDOM2   6
+#define MUTATE_ROLL_RANDOM3   7
+
 
 //  trie node
 typedef struct
@@ -166,8 +173,11 @@ kernel void grind(
 
   int mutateType = rnd(&seed) % NUM_MUTATE_TYPES;
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
+  int pivot_cell2 = rnd(&seed) % BOARD_SIZE;
 
-  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES };
+
+  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, 
+    BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE };
   int n = MUTATE_STEPS[mutateType];
   for (int i = 0; i < n; i++) {
     for (int j = 0; j < BOARD_SIZE; j++) {
@@ -187,6 +197,44 @@ kernel void grind(
     } break;
     case MUTATE_ROLL_FACE: {
       board[pivot_cell] = g_dice[i + (board[pivot_cell] / DIE_FACES)*DIE_FACES];
+    } break;
+    case MUTATE_ROLL_FACE2: {
+      int d1 = i % DIE_FACES; 
+      int d2 = i / DIE_FACES;
+      board[pivot_cell] =  g_dice[d1 + (board[pivot_cell] / DIE_FACES)*DIE_FACES];
+      board[pivot_cell2] = g_dice[d2 + (board[pivot_cell] / DIE_FACES)*DIE_FACES];
+    } break;
+    case MUTATE_SWAP_RANDOM3: {
+      int c1 = rnd(&seed) % BOARD_SIZE;
+      int c2 = rnd(&seed) % BOARD_SIZE;
+      int c3 = rnd(&seed) % BOARD_SIZE;
+      board[c1] = g_boards[id*BOARD_SIZE + c2];
+      board[c2] = g_boards[id*BOARD_SIZE + c3];
+      board[c3] = g_boards[id*BOARD_SIZE + c1];
+    } break;
+    case MUTATE_ROLL_RANDOM: {
+      int c1 = rnd(&seed) % BOARD_SIZE;
+      int d = rnd(&seed) % DIE_FACES;
+      board[c1] = g_dice[d + c1*DIE_FACES];
+    } break;
+    case MUTATE_ROLL_RANDOM2: {
+      int c1 = rnd(&seed) % BOARD_SIZE;
+      int c2 = rnd(&seed) % BOARD_SIZE;
+      int d1 = rnd(&seed) % DIE_FACES;
+      int d2 = rnd(&seed) % DIE_FACES;
+      board[c1] = g_dice[d1 + c1*DIE_FACES];
+      board[c2] = g_dice[d1 + c2*DIE_FACES];
+    } break;
+    case MUTATE_ROLL_RANDOM3: {
+      int c1 = rnd(&seed) % BOARD_SIZE;
+      int c2 = rnd(&seed) % BOARD_SIZE;
+      int c3 = rnd(&seed) % BOARD_SIZE;
+      int d1 = rnd(&seed) % DIE_FACES;
+      int d2 = rnd(&seed) % DIE_FACES;
+      int d3 = rnd(&seed) % DIE_FACES;
+      board[c1] = g_dice[d1 + c1*DIE_FACES];
+      board[c2] = g_dice[d1 + c2*DIE_FACES];
+      board[c3] = g_dice[d1 + c3*DIE_FACES];
     } break;
     default: {}
     }
