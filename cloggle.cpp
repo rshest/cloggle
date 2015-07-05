@@ -35,7 +35,7 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS = 1024*4;
+const int NUM_CL_THREADS = 1024*7;
 const int NUM_CL_ITERATIONS = 100000;
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {

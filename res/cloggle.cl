@@ -6,7 +6,7 @@
 #define BOARD_SIZE (BOARD_SIDE*BOARD_SIDE)
 #define MAX_TRIE_SIZE 1100
 
-#define NUM_MUTATE_TYPES      8
+#define NUM_MUTATE_TYPES      9
 
 #define MUTATE_SWAP_RANDOM    0
 #define MUTATE_SWAP_NEIGHBORS 1
@@ -16,6 +16,7 @@
 #define MUTATE_ROLL_RANDOM    5
 #define MUTATE_ROLL_RANDOM2   6
 #define MUTATE_ROLL_RANDOM3   7
+#define MUTATE_SWAP_RANDOM4   8
 
 
 //  trie node
@@ -177,7 +178,7 @@ kernel void grind(
 
 
   const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, 
-    BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE };
+    BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE };
   int n = MUTATE_STEPS[mutateType];
   for (int i = 0; i < n; i++) {
     for (int j = 0; j < BOARD_SIZE; j++) {
@@ -211,6 +212,16 @@ kernel void grind(
       board[c1] = g_boards[id*BOARD_SIZE + c2];
       board[c2] = g_boards[id*BOARD_SIZE + c3];
       board[c3] = g_boards[id*BOARD_SIZE + c1];
+    } break;
+    case MUTATE_SWAP_RANDOM4: {
+      int c1 = rnd(&seed) % BOARD_SIZE;
+      int c2 = rnd(&seed) % BOARD_SIZE;
+      int c3 = rnd(&seed) % BOARD_SIZE;
+      int c4 = rnd(&seed) % BOARD_SIZE;
+      board[c1] = g_boards[id*BOARD_SIZE + c2];
+      board[c2] = g_boards[id*BOARD_SIZE + c3];
+      board[c3] = g_boards[id*BOARD_SIZE + c4];
+      board[c4] = g_boards[id*BOARD_SIZE + c1];
     } break;
     case MUTATE_ROLL_RANDOM: {
       int c1 = rnd(&seed) % BOARD_SIZE;
