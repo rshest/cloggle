@@ -3,9 +3,7 @@
 #define MAX_WORD_LEN 16
 #define BOARD_SIDE 5
 #define DIE_FACES 6
-#define BOARD_SIZE BOARD_SIDE*BOARD_SIDE
-
-#define MAX_EPOCH 10
+#define BOARD_SIZE (BOARD_SIDE*BOARD_SIDE)
 #define MAX_TRIE_SIZE 1100
 
 //  trie node
@@ -16,10 +14,9 @@ typedef struct
   ushort  edges_offset;   //  offset in the edge label/target arrays
 } Node;
 
-
 //  poor-man random number generator (stolen from Java library implementation)
-ulong rnd(ulong* seed) { 
-  return *seed = ((*seed)*0x5DEECE66DL + 0xBL)&(((ulong)1 << 48) - 1); 
+ulong rnd(ulong* seed) {
+  return *seed = ((*seed) * 0x5DEECE66DL + 0xBL)&(((ulong)1 << 48) - 1);
 }
 
 //  shuffle array in-place (Fischer-Yites)
@@ -126,16 +123,17 @@ kernel void eval(
   constant const char*    g_dice,
   constant const char*    g_cell_neighbors,
   global char*            g_gene_pool,
-  global ushort*          g_scores)
+  global ushort*          g_scores,
+  int                     g_num_boards)
 {
   char board[BOARD_SIZE];
-  for (int i = 0; i < GENE_POOL_SIZE; i++) {
+  for (int i = 0; i < g_num_boards; i++) {
     for (int j = 0; j < BOARD_SIZE; j++) {
       board[j] = g_gene_pool[i*BOARD_SIZE + j];
     }
 
     g_scores[i] = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
-                             g_dice, g_cell_neighbors, board);
+      g_dice, g_cell_neighbors, board);
   }
 }
 
@@ -147,26 +145,38 @@ kernel void grind(
   constant const ushort*  g_trie_edge_targets,
   constant const char*    g_dice,
   constant const char*    g_cell_neighbors,
-  global char*            g_best_boards,
-  global ushort*          g_best_scores,
-  int                     g_offset)
+  global char*            g_boards,
+  global ushort*          g_scores,
+  unsigned int            g_seed)
 {
   int id = get_global_id(0);
 
-  ulong seed = id + g_offset;
+  ulong seed = id + g_seed;
   char board[BOARD_SIZE];
   char best_board[BOARD_SIZE];
-  ushort best_score = 0;
+  ushort best_score = g_scores[id];
+  for (int j = 0; j < BOARD_SIZE; j++) {
+    best_board[j] = g_boards[id*BOARD_SIZE + j];
+  }
   
-  for (int i = 0; i < MAX_EPOCH; i++) {
-    make_random_board(board, g_dice, &seed);
+  int pivot_cell = rnd(&seed) % BOARD_SIZE;
+  for (int i = 0; i < MAX_NEIGHBORS; i++) {
+    int neighbor = g_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
+    if (neighbor == -1) break;
+    for (int j = 0; j < BOARD_SIZE; j++) {
+      board[j] = g_boards[id*BOARD_SIZE + j];
+    }
+    board[neighbor] = g_boards[id*BOARD_SIZE + pivot_cell];
+    board[pivot_cell] = g_boards[id*BOARD_SIZE + neighbor];
+
     ushort score = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
-                              g_dice, g_cell_neighbors, board);
+      g_dice, g_cell_neighbors, board);
     if (score > best_score) {
       best_score = score;
       for (int j = 0; j < BOARD_SIZE; j++) best_board[j] = board[j];
     }
   }
-  g_best_scores[id] = best_score;
-  for (int j = 0; j < BOARD_SIZE; j++) g_best_boards[j + id*BOARD_SIZE] = best_board[j];
+  
+  g_scores[id] = best_score;
+  for (int j = 0; j < BOARD_SIZE; j++) g_boards[j + id*BOARD_SIZE] = best_board[j];
 }
