@@ -6,7 +6,7 @@
 #define BOARD_SIZE (BOARD_SIDE*BOARD_SIDE)
 #define MAX_TRIE_SIZE 1100
 
-#define NUM_MUTATE_TYPES      9
+#define NUM_MUTATE_TYPES      10
 
 #define MUTATE_SWAP_RANDOM    0
 #define MUTATE_SWAP_RANDOM3   1
@@ -17,7 +17,10 @@
 #define MUTATE_ROLL_RANDOM    6
 #define MUTATE_ROLL_RANDOM2   7
 #define MUTATE_ROLL_RANDOM3   8
+#define MUTATE_SWAP_ROLL      9
 
+
+#define MAX_PLATEAU_AGE       1000
 
 //  trie node
 typedef struct
@@ -33,7 +36,7 @@ ulong rnd(ulong* seed) {
 }
 
 //  shuffle array in-place (Fischer-Yites)
-void shuffle_board(char* board, ulong* seed) {
+void shuffle_board(uchar* board, ulong* seed) {
   for (int i = 0; i < BOARD_SIZE; i++) {
     int swap_with = rnd(seed)%(BOARD_SIZE - i);
     char tmp = board[swap_with];
@@ -43,9 +46,9 @@ void shuffle_board(char* board, ulong* seed) {
 }
 
 //  creates a random board from the set of dice
-void make_random_board(char* board, constant const char* g_dice, ulong* seed) {
+void make_random_board(uchar* board, ulong* seed) {
   for (int i = 0; i < BOARD_SIZE; i++) {
-    board[i] = g_dice[i*(DIE_FACES + 1) + rnd(seed)%DIE_FACES];
+    board[i] = (unsigned char)(i*DIE_FACES + rnd(seed)%DIE_FACES);
   }
   shuffle_board(board, seed);
 }
@@ -170,27 +173,30 @@ kernel void grind(
   constant const char*    g_cell_neighbors,
   global uchar*           g_boards,
   global ushort*          g_scores,
-  unsigned int            g_seed)
+  global ushort*          g_ages)
 {
   int id = get_global_id(0);
-
-  ulong seed = id + g_seed;
   uchar board[BOARD_SIZE];
-  uchar best_board[BOARD_SIZE];
   ushort best_score = g_scores[id];
-  for (int j = 0; j < BOARD_SIZE; j++) {
-    best_board[j] = g_boards[id*BOARD_SIZE + j];
-  }
+  ulong seed = id*7 + best_score*(g_ages[id] + 1);
 
+  if (g_ages[id] >= MAX_PLATEAU_AGE) {
+    //  first iteration, or score plateaued, init fresh
+    make_random_board(board, &seed);
+    for (int j = 0; j < BOARD_SIZE; j++) g_boards[id*BOARD_SIZE + j] = board[j];
+    g_ages[id] = 0;
+    best_score = 0;
+  } 
+  
   int mutateType = rnd(&seed) % NUM_MUTATE_TYPES;
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
   int pivot_cell2 = rnd(&seed) % BOARD_SIZE;
 
-
   const int MUTATE_STEPS[] = { BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, MAX_NEIGHBORS, 
     DIE_FACES, DIE_FACES*DIE_FACES, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE };
-  int n = MUTATE_STEPS[mutateType];
-  for (int i = 0; i < n; i++) {
+  int nsteps = MUTATE_STEPS[mutateType];
+
+  for (int i = 0; i < nsteps; i++) {
     for (int j = 0; j < BOARD_SIZE; j++) {
       board[j] = g_boards[id*BOARD_SIZE + j];
     }
@@ -220,9 +226,6 @@ kernel void grind(
     case MUTATE_SWAP_NEIGHBORS: {
       int neighbor = g_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
       if (neighbor >= 0) {
-        if (neighbor < 0 || neighbor >= BOARD_SIZE) {
-          printf("WTF: %d, i: %d, pivot_cell: %d", neighbor, i, pivot_cell);
-        }
         swap(board, neighbor, pivot_cell);
       }
     } break;
@@ -260,6 +263,13 @@ kernel void grind(
       board[c2] = d2 + die_offs(board[c2]);
       board[c3] = d3 + die_offs(board[c3]);
     } break;
+    case MUTATE_SWAP_ROLL: {
+      int d1 = rnd(&seed) % DIE_FACES;
+      int d2 = rnd(&seed) % DIE_FACES;
+      unsigned char tmp = board[i];
+      board[i] = d1 + die_offs(board[pivot_cell]);
+      board[pivot_cell] = d2 + die_offs(tmp);
+    } break;
     default: {}
     }
 
@@ -267,10 +277,11 @@ kernel void grind(
       g_dice, g_cell_neighbors, board);
     if (score > best_score) {
       best_score = score;
-      for (int j = 0; j < BOARD_SIZE; j++) best_board[j] = board[j];
+      for (int j = 0; j < BOARD_SIZE; j++) g_boards[id*BOARD_SIZE + j] = board[j];
     }
   }
   
+  g_ages[id] += (g_scores[id] == best_score);
   g_scores[id] = best_score;
-  for (int j = 0; j < BOARD_SIZE; j++) g_boards[j + id*BOARD_SIZE] = best_board[j];
+
 }

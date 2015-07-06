@@ -35,8 +35,9 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS = 10000;
+const int NUM_CL_THREADS    = 1024*8;
 const int NUM_CL_ITERATIONS = 100000;
+
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {
         {0, -1}, {1, -1}, {1, 0}, {1, 1}, 
@@ -135,107 +136,12 @@ struct TrieNodeCL
     unsigned short  edges_offset;  //  offset in the edge label/target arrays
 };
 
-
 std::string loadFile(const char* fileName) {
     std::ifstream f(fileName);
     std::stringstream buffer;
     buffer << f.rdbuf();
     f.close();
     return buffer.str();
-}
-
-void printPlatformInfo(cl_platform_id platform_id) {
-  char* info;
-  size_t infoSize;
-  const char* attributeNames[5] = { "Name", "Vendor", "Version", "Profile", "Extensions" };
-  const cl_platform_info attributeTypes[5] = { CL_PLATFORM_NAME, CL_PLATFORM_VENDOR,
-      CL_PLATFORM_VERSION, CL_PLATFORM_PROFILE, CL_PLATFORM_EXTENSIONS };
-  const int attributeCount = sizeof(attributeNames) / sizeof(char*);
- 
-  for (int j = 0; j < attributeCount; j++) {
-    // get platform attribute value size
-    clGetPlatformInfo(platform_id, attributeTypes[j], 0, NULL, &infoSize);
-    info = (char*) malloc(infoSize);
- 
-    // get platform attribute value
-    clGetPlatformInfo(platform_id, attributeTypes[j], infoSize, info, NULL);
- 
-    printf("  %-11s: %s\n", attributeNames[j], info);
-    free(info);
-  }
-}
-
-void printDeviceInfo(cl_device_id device) {
-    char* value;
-    size_t valueSize;
-    cl_uint maxComputeUnits;
-    
-    // print device name
-    clGetDeviceInfo(device, CL_DEVICE_NAME, 0, NULL, &valueSize);
-    value = (char*) malloc(valueSize);
-    clGetDeviceInfo(device, CL_DEVICE_NAME, valueSize, value, NULL);
-    printf("Device: %s\n", value);
-    free(value);
- 
-    // print hardware device version
-    clGetDeviceInfo(device, CL_DEVICE_VERSION, 0, NULL, &valueSize);
-    value = (char*) malloc(valueSize);
-    clGetDeviceInfo(device, CL_DEVICE_VERSION, valueSize, value, NULL);
-    printf(" Hardware version: %s\n", value);
-    free(value);
- 
-    // print software driver version
-    clGetDeviceInfo(device, CL_DRIVER_VERSION, 0, NULL, &valueSize);
-    value = (char*) malloc(valueSize);
-    clGetDeviceInfo(device, CL_DRIVER_VERSION, valueSize, value, NULL);
-    printf(" Software version: %s\n", value);
-    free(value);
- 
-    // print c version supported by compiler for device
-    clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, 0, NULL, &valueSize);
-    value = (char*) malloc(valueSize);
-    clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, valueSize, value, NULL);
-    printf(" OpenCL C version: %s\n", value);
-    free(value);
- 
-    // print parallel compute units
-    clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS,
-            sizeof(maxComputeUnits), &maxComputeUnits, NULL);
-    printf(" Parallel compute units: %d\n", maxComputeUnits);
-
-    size_t maxWorkGroupSize;
-    clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE,
-            sizeof(maxWorkGroupSize), &maxWorkGroupSize, NULL);
-    printf(" Max work group size: %d\n", maxWorkGroupSize);
-
-    size_t workitem_size[3];
-    clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_SIZES,
-            sizeof(workitem_size), &workitem_size, NULL);
-    printf(" Work item size: %d\n", workitem_size[0]);
-}
-
-void checkConsistency(const std::vector<unsigned char>& boards) {
-    int nb = (int)boards.size()/BOARD_SIZE;
-    for (int i = 0; i < nb; i++) {
-        std::vector<unsigned char> curb(BOARD_SIZE);
-        std::copy(boards.begin() + BOARD_SIZE*i, boards.begin() + BOARD_SIZE*(i + 1), curb.begin());
-        std::sort(curb.begin(), curb.end());
-        //if (i == 787) {
-        //    for (int k = 0; k < BOARD_SIZE; k++) {
-        //        printf("%d(%d, %d) ", boards[BOARD_SIZE*i + k]/DIE_FACES, curb[k], curb[k]/DIE_FACES);
-        //    }
-        //}
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            if (curb[j]/DIE_FACES != j) {
-                printf("Mismatch board %d: ", i);
-                for (int k = 0; k < BOARD_SIZE; k++) {
-                  printf("%d(%d, %d) ", boards[BOARD_SIZE*i + k]/DIE_FACES, curb[k], curb[k]/DIE_FACES);
-                }
-                printf("\n");
-                break;
-            }
-        }
-    }
 }
 
 int main() {
@@ -274,28 +180,15 @@ int main() {
         }
     }
     
-    cl_platform_id platform_ids[8] = {};
+    cl_platform_id platform_id;
     cl_uint ret_num_platforms;
-    cl_int ret = clGetPlatformIDs(8, platform_ids, &ret_num_platforms);
-    for (cl_uint i = 0; i < ret_num_platforms; i++) {
-        printf("Platform %d:", i);
-        printPlatformInfo(platform_ids[i]);
-    }
-
-    cl_platform_id platform_id = platform_ids[0];
-    cl_device_id device_ids[8] = {};
-    cl_uint ret_num_devices;
-    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_ALL, 8, device_ids, &ret_num_devices);
-    for (cl_uint i = 0; i < ret_num_devices; i++) {
-        printf("Device %d:", i);
-        printDeviceInfo(device_ids[i]);
-    }
-
+    cl_int ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
     cl_device_id device_id;
+    cl_uint ret_num_devices;
     ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
     
     cl_context context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);   
-    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &ret);
+    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, 0, &ret);
 
     cl_mem d_trie_nodes         = clCreateBuffer(context, CL_MEM_READ_ONLY, nodes.size()*sizeof(TrieNodeCL), NULL, &ret);
     cl_mem d_trie_edge_labels   = clCreateBuffer(context, CL_MEM_READ_ONLY, edgeLabels.size()*sizeof(char), NULL, &ret);
@@ -305,6 +198,7 @@ int main() {
     
     cl_mem d_boards             = clCreateBuffer(context, CL_MEM_READ_WRITE, (BOARD_SIZE*NUM_CL_THREADS)*sizeof(char), NULL, &ret);
     cl_mem d_scores             = clCreateBuffer(context, CL_MEM_READ_WRITE, NUM_CL_THREADS*sizeof(unsigned short), NULL, &ret);
+    cl_mem d_ages               = clCreateBuffer(context, CL_MEM_READ_WRITE, NUM_CL_THREADS*sizeof(unsigned short), NULL, &ret);
 
     std::string kernelCode = loadFile("res/cloggle.cl");
     const char* source_str = kernelCode.c_str();
@@ -331,26 +225,15 @@ int main() {
     ret = clSetKernelArg(kern_grind, 5, sizeof(cl_mem), (void*)&d_cell_neighbors);
     ret = clSetKernelArg(kern_grind, 6, sizeof(cl_mem), (void*)&d_boards);
     ret = clSetKernelArg(kern_grind, 7, sizeof(cl_mem), (void*)&d_scores);
+    ret = clSetKernelArg(kern_grind, 8, sizeof(cl_mem), (void*)&d_ages);
 
     size_t globalWorkSize[] = {NUM_CL_THREADS};
 
     std::vector<unsigned char> boards(BOARD_SIZE*NUM_CL_THREADS);
     std::vector<unsigned short> scores(NUM_CL_THREADS);
+    std::vector<unsigned short> ages(NUM_CL_THREADS);
 
-    //  randomly init the boards
-    std::mt19937 rnd(42);
-    unsigned char* pboards = &boards[0];
-    for (int i = 0; i < NUM_CL_THREADS; i++)
-    {
-      for (int j = 0; j < BOARD_SIZE; j++) {
-        boards[j + i*BOARD_SIZE] = rnd()%DIE_FACES + DIE_FACES*j;
-      }
-      std::shuffle(pboards + i*BOARD_SIZE, pboards + (i + 1)*BOARD_SIZE, rnd);
-    }
-
-    //  evaluate the initial boards
-    eval((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(), 
-      (const char*)&boggle.neighbors, &boards[0], &scores[0], NUM_CL_THREADS);
+    std::fill(ages.begin(), ages.end(), MAX_PLATEAU_AGE);    
 
     ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes, CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_labels, CL_TRUE, 0, edgeLabels.size()*sizeof(char), &edgeLabels[0], 0, NULL, NULL);
@@ -358,43 +241,48 @@ int main() {
     ret = clEnqueueWriteBuffer(command_queue, d_dice, CL_TRUE, 0, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), &dice[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_cell_neighbors, CL_TRUE, 0, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), &boggle.neighbors, 0, NULL, NULL);
 
+    ret = clEnqueueWriteBuffer(command_queue, d_ages, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &ages[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
 
-    bool software = true;
-
+    bool software = false;
+    
+    unsigned short bestScore = 0;
+    std::vector<unsigned short> bestBoard(BOARD_SIZE);
     auto t1 = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < NUM_CL_ITERATIONS; i++) {
-        unsigned int seed = rnd();
-        
         if (!software) {
-          ret = clSetKernelArg(kern_grind, 8, sizeof(unsigned int), (void*)&seed);
           ret = clEnqueueNDRangeKernel(command_queue, kern_grind, 1, NULL, globalWorkSize, NULL, 0, NULL, NULL);
           ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
           ret = clEnqueueReadBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
-        }
-        else {
+        } else {
           for (int j = 0; j < NUM_CL_THREADS; j++) {
             CLID = j;
             grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(),
-              (const char*)&boggle.neighbors, (unsigned char*)&boards[0], &scores[0], seed);
+              (const char*)&boggle.neighbors, (unsigned char*)&boards[0], &scores[0], &ages[0]);
           }
         }
+
         auto mit = std::max_element(scores.begin(), scores.end());
-        std::vector<char> best_board(BOARD_SIZE + 1);
+        unsigned short score = *mit;
         const unsigned char* pc = &boards[BOARD_SIZE*(mit - scores.begin())];
-        for (int j = 0; j < BOARD_SIZE; j++) {
-          best_board[j] = dice[pc[j]];
-        }
-        best_board[BOARD_SIZE] = 0;
         auto t2 = std::chrono::high_resolution_clock::now();
-        printf("step: %d, score: %d, board: %s, time: %dms dice: ", i, *mit, &best_board[0],
-          std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
-        for (int j = 0; j < BOARD_SIZE; j++) {
-          printf("%d ", pc[j]/DIE_FACES);
+        printf("%d. step: %d, time: %dms, ", score,
+          i, std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
+        printf("board: ");
+        for (int j = 0; j < BOARD_SIZE; j++) printf("%c", dice[pc[j]]);
+        printf(" dice: ");
+        for (int j = 0; j < BOARD_SIZE; j++) printf("%d ", pc[j]/DIE_FACES);
+        
+        if (score >= bestScore) {
+          bestScore = score;
+          std::copy(pc, pc + BOARD_SIZE, &bestBoard[0]);
+        } else {
+          printf(" best: %d ", bestScore);
+          for (int j = 0; j < BOARD_SIZE; j++) printf("%c", dice[bestBoard[j]]);
         }
+        
         printf("\n");
-        checkConsistency(boards);
     }
 
     ret = clFlush(command_queue);
