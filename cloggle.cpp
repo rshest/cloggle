@@ -35,7 +35,7 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS = 1024*7;
+const int NUM_CL_THREADS = 1024*8;
 const int NUM_CL_ITERATIONS = 100000;
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {
@@ -212,6 +212,21 @@ void printDeviceInfo(cl_device_id device) {
     printf(" Work item size: %d\n", workitem_size[0]);
 }
 
+void checkConsistency(const std::vector<unsigned char>& boards) {
+    int nb = boards.size()/BOARD_SIZE;
+    for (int i = 0; i < nb; i++) {
+        std::vector<unsigned char> b0, b(BOARD_SIZE);
+        std::copy(boards.begin() + BOARD_SIZE*i, boards.begin() + BOARD_SIZE*(i + 1), b.begin());
+        b0 = b;
+        std::sort(b.begin(), b.end());
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (b[j]/6 != j) {
+                printf("Mismatch board %d\n", i);
+            }
+        }
+    }
+}
+
 int main() {
     std::string dict = loadFile("res/words.txt");
     std::string dice = loadFile("res/dice.txt");
@@ -271,11 +286,11 @@ int main() {
     cl_context context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);   
     cl_command_queue command_queue = clCreateCommandQueue(context, device_id, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &ret);
 
-    cl_mem d_trie_nodes         = clCreateBuffer(context, CL_MEM_WRITE_ONLY, nodes.size()*sizeof(TrieNodeCL), NULL, &ret);
-    cl_mem d_trie_edge_labels   = clCreateBuffer(context, CL_MEM_WRITE_ONLY, edgeLabels.size()*sizeof(char), NULL, &ret);
-    cl_mem d_trie_edge_targets  = clCreateBuffer(context, CL_MEM_WRITE_ONLY, edgeTargets.size()*sizeof(unsigned short), NULL, &ret);
-    cl_mem d_dice               = clCreateBuffer(context, CL_MEM_WRITE_ONLY, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), NULL, &ret);
-    cl_mem d_cell_neighbors     = clCreateBuffer(context, CL_MEM_WRITE_ONLY, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), NULL, &ret);
+    cl_mem d_trie_nodes         = clCreateBuffer(context, CL_MEM_READ_ONLY, nodes.size()*sizeof(TrieNodeCL), NULL, &ret);
+    cl_mem d_trie_edge_labels   = clCreateBuffer(context, CL_MEM_READ_ONLY, edgeLabels.size()*sizeof(char), NULL, &ret);
+    cl_mem d_trie_edge_targets  = clCreateBuffer(context, CL_MEM_READ_ONLY, edgeTargets.size()*sizeof(unsigned short), NULL, &ret);
+    cl_mem d_dice               = clCreateBuffer(context, CL_MEM_READ_ONLY, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), NULL, &ret);
+    cl_mem d_cell_neighbors     = clCreateBuffer(context, CL_MEM_READ_ONLY, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), NULL, &ret);
     
     cl_mem d_boards             = clCreateBuffer(context, CL_MEM_READ_WRITE, (BOARD_SIZE*NUM_CL_THREADS)*sizeof(char), NULL, &ret);
     cl_mem d_scores             = clCreateBuffer(context, CL_MEM_READ_WRITE, NUM_CL_THREADS*sizeof(unsigned short), NULL, &ret);
@@ -335,7 +350,7 @@ int main() {
     ret = clEnqueueWriteBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
 
-    bool software = false;
+    bool software = true;
 
     auto t1 = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < NUM_CL_ITERATIONS; i++) {
@@ -354,7 +369,7 @@ int main() {
               (const char*)&boggle.neighbors, (unsigned char*)&boards[0], &scores[0], seed);
           }
         }
-
+        checkConsistency(boards);
         auto mit = std::max_element(scores.begin(), scores.end());
         std::vector<char> best_board(BOARD_SIZE + 1);
         const unsigned char* pc = &boards[BOARD_SIZE*(mit - scores.begin())];
@@ -363,8 +378,12 @@ int main() {
         }
         best_board[BOARD_SIZE] = 0;
         auto t2 = std::chrono::high_resolution_clock::now();
-        printf("step: %d, score: %d, board: %s, time: %dms\n", i, *mit, &best_board[0],
+        printf("step: %d, score: %d, board: %s, time: %dms dice: ", i, *mit, &best_board[0],
           std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
+        for (int j = 0; j < BOARD_SIZE; j++) {
+          printf("%d ", pc[j]/DIE_FACES);
+        }
+        printf("\n");
     }
 
     ret = clFlush(command_queue);
