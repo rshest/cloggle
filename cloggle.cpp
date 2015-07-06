@@ -35,7 +35,7 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS = 1024*8;
+const int NUM_CL_THREADS = 10000;
 const int NUM_CL_ITERATIONS = 100000;
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
 const int OFFS[][MAX_NEIGHBORS] = {
@@ -61,7 +61,9 @@ struct Boggle {
                     curN++;
                 }
             }
-            neighbors[i*(MAX_NEIGHBORS + 1) + curN] = -1;
+            for (int j = curN; j <= MAX_NEIGHBORS; j++) { 
+                neighbors[i*(MAX_NEIGHBORS + 1) + j] = -1;
+            }
         } 
     }
 
@@ -213,15 +215,24 @@ void printDeviceInfo(cl_device_id device) {
 }
 
 void checkConsistency(const std::vector<unsigned char>& boards) {
-    int nb = boards.size()/BOARD_SIZE;
+    int nb = (int)boards.size()/BOARD_SIZE;
     for (int i = 0; i < nb; i++) {
-        std::vector<unsigned char> b0, b(BOARD_SIZE);
-        std::copy(boards.begin() + BOARD_SIZE*i, boards.begin() + BOARD_SIZE*(i + 1), b.begin());
-        b0 = b;
-        std::sort(b.begin(), b.end());
+        std::vector<unsigned char> curb(BOARD_SIZE);
+        std::copy(boards.begin() + BOARD_SIZE*i, boards.begin() + BOARD_SIZE*(i + 1), curb.begin());
+        std::sort(curb.begin(), curb.end());
+        //if (i == 787) {
+        //    for (int k = 0; k < BOARD_SIZE; k++) {
+        //        printf("%d(%d, %d) ", boards[BOARD_SIZE*i + k]/DIE_FACES, curb[k], curb[k]/DIE_FACES);
+        //    }
+        //}
         for (int j = 0; j < BOARD_SIZE; j++) {
-            if (b[j]/6 != j) {
-                printf("Mismatch board %d\n", i);
+            if (curb[j]/DIE_FACES != j) {
+                printf("Mismatch board %d: ", i);
+                for (int k = 0; k < BOARD_SIZE; k++) {
+                  printf("%d(%d, %d) ", boards[BOARD_SIZE*i + k]/DIE_FACES, curb[k], curb[k]/DIE_FACES);
+                }
+                printf("\n");
+                break;
             }
         }
     }
@@ -327,7 +338,7 @@ int main() {
     std::vector<unsigned short> scores(NUM_CL_THREADS);
 
     //  randomly init the boards
-    std::mt19937 rnd(12345678);
+    std::mt19937 rnd(42);
     unsigned char* pboards = &boards[0];
     for (int i = 0; i < NUM_CL_THREADS; i++)
     {
@@ -369,7 +380,6 @@ int main() {
               (const char*)&boggle.neighbors, (unsigned char*)&boards[0], &scores[0], seed);
           }
         }
-        checkConsistency(boards);
         auto mit = std::max_element(scores.begin(), scores.end());
         std::vector<char> best_board(BOARD_SIZE + 1);
         const unsigned char* pc = &boards[BOARD_SIZE*(mit - scores.begin())];
@@ -384,6 +394,7 @@ int main() {
           printf("%d ", pc[j]/DIE_FACES);
         }
         printf("\n");
+        checkConsistency(boards);
     }
 
     ret = clFlush(command_queue);

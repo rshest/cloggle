@@ -50,6 +50,16 @@ void make_random_board(char* board, constant const char* g_dice, ulong* seed) {
   shuffle_board(board, seed);
 }
 
+void swap(unsigned char* arr, int i, int j) {
+  unsigned char tmp = arr[i];
+  arr[i] = arr[j];
+  arr[j] = tmp;
+}
+
+uchar die_offs(uchar die) {
+  return (die/DIE_FACES)*DIE_FACES;
+}
+
 //  evaluates the board score
 ushort eval_board(
   constant const Node*    g_trie_nodes, 
@@ -150,7 +160,7 @@ kernel void eval(
   }
 }
 
-//  the grinding kernel 
+//  grinding kernel 
 kernel void grind(
   constant const Node*    g_trie_nodes, 
   int                     g_num_trie_nodes,
@@ -187,55 +197,57 @@ kernel void grind(
 
     switch (mutateType) {
     case MUTATE_SWAP_RANDOM: {
-      board[pivot_cell] = g_boards[id*BOARD_SIZE + i];
-      board[i] = g_boards[id*BOARD_SIZE + pivot_cell];
+      swap(board, i, pivot_cell);
     } break;
     case MUTATE_SWAP_RANDOM3: {
       int c1 = rnd(&seed) % BOARD_SIZE;
       int c2 = rnd(&seed) % BOARD_SIZE;
       int c3 = rnd(&seed) % BOARD_SIZE;
-      board[c1] = g_boards[id*BOARD_SIZE + c2];
-      board[c2] = g_boards[id*BOARD_SIZE + c3];
-      board[c3] = g_boards[id*BOARD_SIZE + c1];
+      swap(board, c1, c2);
+      swap(board, c2, c3);
+      swap(board, c3, c1);
     } break;
     case MUTATE_SWAP_RANDOM4: {
       int c1 = rnd(&seed) % BOARD_SIZE;
       int c2 = rnd(&seed) % BOARD_SIZE;
       int c3 = rnd(&seed) % BOARD_SIZE;
       int c4 = rnd(&seed) % BOARD_SIZE;
-      board[c1] = g_boards[id*BOARD_SIZE + c2];
-      board[c2] = g_boards[id*BOARD_SIZE + c3];
-      board[c3] = g_boards[id*BOARD_SIZE + c4];
-      board[c4] = g_boards[id*BOARD_SIZE + c1];
+      swap(board, c1, c2);
+      swap(board, c2, c3);
+      swap(board, c3, c4);
+      swap(board, c4, c1);
     } break;
     case MUTATE_SWAP_NEIGHBORS: {
       int neighbor = g_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
-      if (neighbor == -1) break;
-      board[neighbor] = g_boards[id*BOARD_SIZE + pivot_cell];
-      board[pivot_cell] = g_boards[id*BOARD_SIZE + neighbor];
+      if (neighbor >= 0) {
+        if (neighbor < 0 || neighbor >= BOARD_SIZE) {
+          printf("WTF: %d, i: %d, pivot_cell: %d", neighbor, i, pivot_cell);
+        }
+        swap(board, neighbor, pivot_cell);
+      }
     } break;
     case MUTATE_ROLL_FACE: {
-      board[pivot_cell] = i + (board[pivot_cell] / DIE_FACES)*DIE_FACES;
+      board[pivot_cell] = i + die_offs(board[pivot_cell]);
     } break;
     case MUTATE_ROLL_FACE2: {
       int d1 = i % DIE_FACES; 
       int d2 = i / DIE_FACES;
-      board[pivot_cell] =  d1 + (board[pivot_cell]  / DIE_FACES)*DIE_FACES;
-      board[pivot_cell2] = d2 + (board[pivot_cell2] / DIE_FACES)*DIE_FACES;
+      board[pivot_cell] =  d1 + die_offs(board[pivot_cell]);
+      board[pivot_cell2] = d2 + die_offs(board[pivot_cell2]);
     } break;
 
     case MUTATE_ROLL_RANDOM: {
       int c1 = rnd(&seed) % BOARD_SIZE;
       int d = rnd(&seed) % DIE_FACES;
-      board[c1] = d + (board[c1]/DIE_FACES)*DIE_FACES;
+      board[c1] = d + die_offs(board[c1]);
     } break;
     case MUTATE_ROLL_RANDOM2: {
       int c1 = rnd(&seed) % BOARD_SIZE;
       int c2 = rnd(&seed) % BOARD_SIZE;
       int d1 = rnd(&seed) % DIE_FACES;
       int d2 = rnd(&seed) % DIE_FACES;
-      board[c1] = d1 + (board[c1] / DIE_FACES)*DIE_FACES;
-      board[c2] = d2 + (board[c2] / DIE_FACES)*DIE_FACES;
+      board[c1] = d1 + die_offs(board[c1]);
+      board[c2] = d2 + die_offs(board[c2]);
     } break;
     case MUTATE_ROLL_RANDOM3: {
       int c1 = rnd(&seed) % BOARD_SIZE;
@@ -244,9 +256,9 @@ kernel void grind(
       int d1 = rnd(&seed) % DIE_FACES;
       int d2 = rnd(&seed) % DIE_FACES;
       int d3 = rnd(&seed) % DIE_FACES;
-      board[c1] = d1 + (board[c1] / DIE_FACES)*DIE_FACES;
-      board[c2] = d2 + (board[c2] / DIE_FACES)*DIE_FACES;
-      board[c3] = d3 + (board[c3] / DIE_FACES)*DIE_FACES;
+      board[c1] = d1 + die_offs(board[c1]);
+      board[c2] = d2 + die_offs(board[c2]);
+      board[c3] = d3 + die_offs(board[c3]);
     } break;
     default: {}
     }
