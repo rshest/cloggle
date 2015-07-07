@@ -12,8 +12,6 @@
 #include <random>
 #include <set>
 
-#include "constants.h"
-
 extern "C" {
 int CLID = 0;
 #define uchar unsigned char
