@@ -6,22 +6,19 @@
 #define BOARD_SIZE (BOARD_SIDE*BOARD_SIDE)
 #define MAX_TRIE_SIZE 1100
 
-#define NUM_MUTATE_TYPES      10
+#define NUM_MUTATE_TYPES      5
 
-#define MUTATE_SWAP_NEIGHBORS 0
-#define MUTATE_ROLL_FACE      1
-#define MUTATE_ROLL_FACE2     2
+#define MUTATE_SWAP_RANDOM    0
+#define MUTATE_SWAP_NEIGHBORS 1
+#define MUTATE_ROLL_FACE      2
+#define MUTATE_ROLL_FACE2     3
+#define MUTATE_SWAP_ROLL      4
 
-#define MUTATE_SWAP_RANDOM    3
-#define MUTATE_SWAP_RANDOM3   4
-#define MUTATE_SWAP_RANDOM4   5
-#define MUTATE_ROLL_RANDOM    6
-#define MUTATE_ROLL_RANDOM2   7
-#define MUTATE_ROLL_RANDOM3   8
-#define MUTATE_SWAP_ROLL      9
+#define MAX_SWAPS             12
+#define MAX_ROLLS             12
 
 
-#define MAX_PLATEAU_AGE       200
+#define MAX_PLATEAU_AGE       1000
 
 //  trie node
 typedef struct
@@ -201,9 +198,7 @@ kernel void grind(
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
   int pivot_cell2 = rnd(&seed) % BOARD_SIZE;
 
-  const int MUTATE_STEPS[] = {  MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, 
-    BOARD_SIZE, BOARD_SIZE, BOARD_SIZE,
-    BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE };
+  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, BOARD_SIZE};
   int nsteps = MUTATE_STEPS[mutateType];
 
   for (int i = 0; i < nsteps; i++) {
@@ -212,26 +207,9 @@ kernel void grind(
     }
 
     switch (mutateType) {
+    
     case MUTATE_SWAP_RANDOM: {
       swap(board, i, pivot_cell);
-    } break;
-    case MUTATE_SWAP_RANDOM3: {
-      int c1 = rnd(&seed) % BOARD_SIZE;
-      int c2 = rnd(&seed) % BOARD_SIZE;
-      int c3 = rnd(&seed) % BOARD_SIZE;
-      swap(board, c1, c2);
-      swap(board, c2, c3);
-      swap(board, c3, c1);
-    } break;
-    case MUTATE_SWAP_RANDOM4: {
-      int c1 = rnd(&seed) % BOARD_SIZE;
-      int c2 = rnd(&seed) % BOARD_SIZE;
-      int c3 = rnd(&seed) % BOARD_SIZE;
-      int c4 = rnd(&seed) % BOARD_SIZE;
-      swap(board, c1, c2);
-      swap(board, c2, c3);
-      swap(board, c3, c4);
-      swap(board, c4, c1);
     } break;
     case MUTATE_SWAP_NEIGHBORS: {
       int neighbor = g_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
@@ -249,28 +227,19 @@ kernel void grind(
       board[pivot_cell2] = d2 + die_offs(board[pivot_cell2]);
     } break;
 
-    case MUTATE_ROLL_RANDOM: {
-      int c1 = rnd(&seed) % BOARD_SIZE;
-      random_flip(board, c1, g_num_dice, &seed);
-    } break;
-    case MUTATE_ROLL_RANDOM2: {
-      int c1 = rnd(&seed) % BOARD_SIZE;
-      int c2 = rnd(&seed) % BOARD_SIZE;
-      random_flip(board, c1, g_num_dice, &seed);
-      random_flip(board, c2, g_num_dice, &seed);
-    } break;
-    case MUTATE_ROLL_RANDOM3: {
-      int c1 = rnd(&seed) % BOARD_SIZE;
-      int c2 = rnd(&seed) % BOARD_SIZE;
-      int c3 = rnd(&seed) % BOARD_SIZE;
-      random_flip(board, c1, g_num_dice, &seed);
-      random_flip(board, c2, g_num_dice, &seed);
-      random_flip(board, c3, g_num_dice, &seed);
-    } break;
     case MUTATE_SWAP_ROLL: {
-      swap(board, i, pivot_cell);
-      random_flip(board, i, g_num_dice, &seed);
-      random_flip(board, pivot_cell, g_num_dice, &seed);
+      int nswaps = rnd(&seed) % MAX_SWAPS;
+      int c = pivot_cell;
+      for (int j = 0; j < nswaps; j++) {
+        int c1 = rnd(&seed) % BOARD_SIZE;
+        swap(board, c, c1);
+        c = c1;
+      }
+
+      int nrolls = rnd(&seed) % MAX_ROLLS;
+      for (int j = 0; j < nrolls; j++) {
+        random_flip(board, rnd(&seed) % BOARD_SIZE, g_num_dice, &seed);
+      }
     } break;
     default: {}
     }
