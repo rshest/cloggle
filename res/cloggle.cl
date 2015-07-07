@@ -18,15 +18,22 @@
 #define MAX_ROLLS             9
 
 
-#define MAX_PLATEAU_AGE       256
+#define MAX_PLATEAU_AGE       1000
 
 //  trie node
-typedef struct
-{
+typedef struct {
   uchar   score;          //  node score, assuming terminal if non-0
   uchar   num_edges;      //  number of outgoing edges
   ushort  edges_offset;   //  offset in the edge label/target arrays
-} Node;
+} TrieNodeCL;
+
+typedef struct {
+  unsigned short  score;
+  unsigned short  age;
+  unsigned char   cells[BOARD_SIZE];
+  //  want to be the board struct 32-bytes aligned for access efficiency
+  unsigned char   __padding[32 - BOARD_SIZE - sizeof(unsigned short) * 2];
+} BoardCL;
 
 //  poor-man random number generator (stolen from Java library implementation)
 ulong rnd(ulong* seed) {
@@ -44,11 +51,15 @@ void shuffle_board(uchar* board, ulong* seed) {
 }
 
 //  creates a random board from the set of dice
-void make_random_board(uchar* board, constant const uchar* g_num_dice, ulong* seed) {
+void make_random_board(uchar* board, constant const uchar* c_num_dice, ulong* seed) {
   for (int i = 0; i < BOARD_SIZE; i++) {
-    board[i] = (unsigned char)(i*DIE_FACES + rnd(seed)%g_num_dice[i]);
+    board[i] = (unsigned char)(i*DIE_FACES + rnd(seed)%c_num_dice[i]);
   }
   shuffle_board(board, seed);
+}
+//  returns a random cell index
+uchar rnd_cell(ulong* seed) {
+  return rnd(seed)%BOARD_SIZE;
 }
 
 void swap(unsigned char* arr, int i, int j) {
@@ -61,22 +72,22 @@ uchar die_offs(uchar die) {
   return (die/DIE_FACES)*DIE_FACES;
 }
 
-void random_flip(uchar* board, int pos, constant const uchar* g_num_dice, ulong* seed) {
+void random_flip(uchar* board, int pos, constant const uchar* c_num_dice, ulong* seed) {
   uchar offs = board[pos]/DIE_FACES;
-  int d = rnd(seed) % g_num_dice[offs];
+  int d = rnd(seed) % c_num_dice[offs];
   board[pos] = d + offs*DIE_FACES;
 }
 
 
 //  evaluates the board score
 ushort eval_board(
-  constant const Node*    g_trie_nodes, 
-  int                     g_num_trie_nodes,
-  constant const char*    g_trie_edge_labels,
-  constant const ushort*  g_trie_edge_targets,
-  constant const char*    g_dice,
-  constant const char*    g_cell_neighbors,
-  const uchar*            board
+  constant const TrieNodeCL*  c_trie_nodes,
+  int                         c_num_trie_nodes,
+  constant const char*        c_trie_edge_labels,
+  constant const ushort*      c_trie_edge_targets,
+  constant const char*        c_dice,
+  constant const char*        c_cell_neighbors,
+  const uchar*                board
 ) {
   uchar visited_nodes[MAX_TRIE_SIZE] = {};
   ushort score = 0;
@@ -102,15 +113,15 @@ ushort eval_board(
       bool backtrack = true;
       if (cur_neighbor_stack[depth] == 0) {
         //  find the outgoing edge, corresponding to the current cell
-        char c = g_dice[board[cell]];
-        int edge_offs = g_trie_nodes[node].edges_offset;
-        int num_edges = (int)g_trie_nodes[node].num_edges;
+        char c = c_dice[board[cell]];
+        int edge_offs = c_trie_nodes[node].edges_offset;
+        int num_edges = (int)c_trie_nodes[node].num_edges;
         node = -1;
         for (int k = 0; k < num_edges; k++) {
-          if (g_trie_edge_labels[edge_offs + k] == c) {
-            node = g_trie_edge_targets[edge_offs + k];
+          if (c_trie_edge_labels[edge_offs + k] == c) {
+            node = c_trie_edge_targets[edge_offs + k];
             //  the prefix also may be a full word, add the score
-            score += (ushort)g_trie_nodes[node].score*(1 - (visited_nodes[node/8] >> (node%8))&1);
+            score += (ushort)c_trie_nodes[node].score*(1 - (visited_nodes[node/8] >> (node%8))&1);
             visited_nodes[node/8] |= (1 << (node%8));
             break;
           }
@@ -123,7 +134,7 @@ ushort eval_board(
         visited_faces[cell] = 1;
         int neighbor_cell = -1;
         do {
-          neighbor_cell = g_cell_neighbors[cur_neighbor_stack[depth] + (MAX_NEIGHBORS + 1)*cell];
+          neighbor_cell = c_cell_neighbors[cur_neighbor_stack[depth] + (MAX_NEIGHBORS + 1)*cell];
           cur_neighbor_stack[depth]++;
         } while (neighbor_cell >= 0 && visited_faces[neighbor_cell]);
 
@@ -145,65 +156,44 @@ ushort eval_board(
   return score;
 }
 
-//  board evaluation kernel
-kernel void eval(
-  constant const Node*    g_trie_nodes, 
-  int                     g_num_trie_nodes,
-  constant const char*    g_trie_edge_labels,
-  constant const ushort*  g_trie_edge_targets,
-  constant const char*    g_dice,
-  constant const char*    g_cell_neighbors,
-  global uchar*           g_boards,
-  global ushort*          g_scores,
-  int                     g_num_boards)
-{
-  uchar board[BOARD_SIZE];
-  for (int i = 0; i < g_num_boards; i++) {
-    for (int j = 0; j < BOARD_SIZE; j++) {
-      board[j] = g_boards[i*BOARD_SIZE + j];
-    }
-
-    g_scores[i] = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
-      g_dice, g_cell_neighbors, board);
-  }
-}
-
 //  grinding kernel 
 kernel void grind(
-  constant const Node*    g_trie_nodes, 
-  int                     g_num_trie_nodes,
-  constant const char*    g_trie_edge_labels,
-  constant const ushort*  g_trie_edge_targets,
-  constant const char*    g_dice,
-  constant const uchar*   g_num_dice,
-  constant const char*    g_cell_neighbors,
-  global uchar*           g_boards,
-  global ushort*          g_scores,
-  global ushort*          g_ages)
+  constant const TrieNodeCL*  c_trie_nodes,
+  int                         c_num_trie_nodes,
+  constant const char*        c_trie_edge_labels,
+  constant const ushort*      c_trie_edge_targets,
+  constant const char*        c_dice,
+  constant const uchar*       c_num_dice,
+  constant const char*        c_cell_neighbors,
+  global BoardCL*             g_boards)
 {
   int id = get_global_id(0);
   uchar board[BOARD_SIZE];
-  ushort best_score = g_scores[id];
-  ulong seed = id*7 + best_score*(g_ages[id] + 1);
+  uchar best_board[BOARD_SIZE];
 
-  if (g_ages[id] >= MAX_PLATEAU_AGE) {
+  ushort best_score = g_boards[id].score;
+  ulong seed = id * 7 + best_score*(g_boards[id].age + 1);
+
+  if (g_boards[id].age >= MAX_PLATEAU_AGE) {
     //  first iteration, or score plateaued, init fresh
-    make_random_board(board, g_num_dice, &seed);
-    for (int j = 0; j < BOARD_SIZE; j++) g_boards[id*BOARD_SIZE + j] = board[j];
-    g_ages[id] = 0;
+    make_random_board(board, c_num_dice, &seed);
+    for (int j = 0; j < BOARD_SIZE; j++) best_board[j] = board[j];
+    g_boards[id].age = 0;
     best_score = 0;
-  } 
+  } else {
+    for (int j = 0; j < BOARD_SIZE; j++) best_board[j] = g_boards[id].cells[j];
+  }
   
   int mutateType = rnd(&seed) % NUM_MUTATE_TYPES;
-  int pivot_cell = rnd(&seed) % BOARD_SIZE;
-  int pivot_cell2 = rnd(&seed) % BOARD_SIZE;
+  int pivot_cell = rnd_cell(&seed);
+  int pivot_cell2 = rnd_cell(&seed);
 
   const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, 32};
   int nsteps = MUTATE_STEPS[mutateType];
 
   for (int i = 0; i < nsteps; i++) {
     for (int j = 0; j < BOARD_SIZE; j++) {
-      board[j] = g_boards[id*BOARD_SIZE + j];
+      board[j] = best_board[j];
     }
 
     switch (mutateType) {
@@ -212,7 +202,7 @@ kernel void grind(
       swap(board, i, pivot_cell);
     } break;
     case MUTATE_SWAP_NEIGHBORS: {
-      int neighbor = g_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
+      int neighbor = c_cell_neighbors[i + pivot_cell*(MAX_NEIGHBORS + 1)];
       if (neighbor >= 0) {
         swap(board, neighbor, pivot_cell);
       }
@@ -231,27 +221,28 @@ kernel void grind(
       int nswaps = rnd(&seed) % MAX_SWAPS;
       int c = pivot_cell;
       for (int j = 0; j < nswaps; j++) {
-        int c1 = rnd(&seed) % BOARD_SIZE;
+        int c1 = rnd_cell(&seed);
         swap(board, c, c1);
         c = c1;
       }
 
       int nrolls = rnd(&seed) % MAX_ROLLS;
       for (int j = 0; j < nrolls; j++) {
-        random_flip(board, rnd(&seed) % BOARD_SIZE, g_num_dice, &seed);
+        random_flip(board, rnd_cell(&seed), c_num_dice, &seed);
       }
     } break;
     default: {}
     }
 
-    ushort score = eval_board(g_trie_nodes, g_num_trie_nodes, g_trie_edge_labels, g_trie_edge_targets,
-      g_dice, g_cell_neighbors, board);
+    ushort score = eval_board(c_trie_nodes, c_num_trie_nodes, c_trie_edge_labels, c_trie_edge_targets,
+      c_dice, c_cell_neighbors, board);
     if (score > best_score) {
       best_score = score;
-      for (int j = 0; j < BOARD_SIZE; j++) g_boards[id*BOARD_SIZE + j] = board[j];
+      for (int j = 0; j < BOARD_SIZE; j++) best_board[j] = board[j];
     }
   }
   
-  g_ages[id] = (g_scores[id] == best_score)*(g_ages[id] + 1);
-  g_scores[id] = best_score;
+  for (int j = 0; j < BOARD_SIZE; j++) g_boards[id].cells[j] = best_board[j];
+  g_boards[id].age = (g_boards[id].score == best_score)*(g_boards[id].age + 1);
+  g_boards[id].score = best_score;
 }
