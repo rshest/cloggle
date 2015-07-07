@@ -36,7 +36,8 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS    = 1000;//1024*8;
+const int NUM_CL_THREADS    = 1024*8;
+const bool SOFTWARE_GRIND   = false;
 const int NUM_CL_ITERATIONS = 100000;
 
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
@@ -266,14 +267,12 @@ int main() {
     ret = clEnqueueWriteBuffer(command_queue, d_ages, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &ages[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
-
-    bool software = true; 
     
     unsigned short bestScore = 0;
     std::vector<unsigned short> bestBoard(BOARD_SIZE);
     auto t1 = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < NUM_CL_ITERATIONS; i++) {
-        if (!software) {
+        if (!SOFTWARE_GRIND) {
           ret = clEnqueueNDRangeKernel(command_queue, kern_grind, 1, NULL, globalWorkSize, NULL, 0, NULL, NULL);
 
           ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);

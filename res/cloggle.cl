@@ -14,11 +14,11 @@
 #define MUTATE_ROLL_FACE2     3
 #define MUTATE_SWAP_ROLL      4
 
-#define MAX_SWAPS             12
-#define MAX_ROLLS             12
+#define MAX_SWAPS             9
+#define MAX_ROLLS             9
 
 
-#define MAX_PLATEAU_AGE       1000
+#define MAX_PLATEAU_AGE       256
 
 //  trie node
 typedef struct
@@ -198,7 +198,7 @@ kernel void grind(
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
   int pivot_cell2 = rnd(&seed) % BOARD_SIZE;
 
-  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, BOARD_SIZE};
+  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, 32};
   int nsteps = MUTATE_STEPS[mutateType];
 
   for (int i = 0; i < nsteps; i++) {
@@ -252,7 +252,6 @@ kernel void grind(
     }
   }
   
-  g_ages[id] += (g_scores[id] == best_score);
+  g_ages[id] = (g_scores[id] == best_score)*(g_ages[id] + 1);
   g_scores[id] = best_score;
-
 }
