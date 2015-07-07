@@ -10,6 +10,7 @@
 #include <iostream>
 #include <chrono>
 #include <random>
+#include <set>
 
 #include "constants.h"
 
@@ -35,7 +36,7 @@ int get_global_size(int n) { return n; }
 #include <CL/cl.h>
 #endif
 
-const int NUM_CL_THREADS    = 1024*8;
+const int NUM_CL_THREADS    = 100;//1024*8;
 const int NUM_CL_ITERATIONS = 100000;
 
 const int SCORE_LOOKUP[] = {0, 0, 0, 0, 1, 2, 3, 5, 11};
@@ -146,9 +147,27 @@ std::string loadFile(const char* fileName) {
 
 int main() {
     std::string dict = loadFile("res/words.txt");
+
+    //  load and preprocess dice (move the unique ones to front)
     std::string dice = loadFile("res/dice.txt");
+    std::vector<unsigned char> diceNum(BOARD_SIZE);
     dice.erase(std::remove(dice.begin(), dice.end(), '\n'), dice.end());
-    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        std::set<char> duniq;
+        std::vector<char> drest;
+        for (int j = 0; j < DIE_FACES; j++) {
+            char d = dice[j + i*DIE_FACES];
+            if (duniq.find(d) != duniq.end()) {
+                drest.push_back(d);
+            } else {
+                duniq.insert(d);
+            }
+        }
+        std::copy(duniq.begin(), duniq.end(), dice.begin() + i*DIE_FACES);
+        std::copy(drest.begin(), drest.end(), dice.begin() + i*DIE_FACES + duniq.size());
+        diceNum[i] = (unsigned char)duniq.size();
+    }
+
     Boggle boggle;
     TrieNode trie;
     trie.createTrie(dict);
@@ -193,7 +212,8 @@ int main() {
     cl_mem d_trie_nodes         = clCreateBuffer(context, CL_MEM_READ_ONLY, nodes.size()*sizeof(TrieNodeCL), NULL, &ret);
     cl_mem d_trie_edge_labels   = clCreateBuffer(context, CL_MEM_READ_ONLY, edgeLabels.size()*sizeof(char), NULL, &ret);
     cl_mem d_trie_edge_targets  = clCreateBuffer(context, CL_MEM_READ_ONLY, edgeTargets.size()*sizeof(unsigned short), NULL, &ret);
-    cl_mem d_dice               = clCreateBuffer(context, CL_MEM_READ_ONLY, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), NULL, &ret);
+    cl_mem d_dice               = clCreateBuffer(context, CL_MEM_READ_ONLY, BOARD_SIZE*DIE_FACES*sizeof(unsigned char), NULL, &ret);
+    cl_mem d_num_dice           = clCreateBuffer(context, CL_MEM_READ_ONLY, BOARD_SIZE*DIE_FACES*sizeof(unsigned char), NULL, &ret);
     cl_mem d_cell_neighbors     = clCreateBuffer(context, CL_MEM_READ_ONLY, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), NULL, &ret);
     
     cl_mem d_boards             = clCreateBuffer(context, CL_MEM_READ_WRITE, (BOARD_SIZE*NUM_CL_THREADS)*sizeof(char), NULL, &ret);
@@ -222,10 +242,11 @@ int main() {
     ret = clSetKernelArg(kern_grind, 2, sizeof(cl_mem), (void*)&d_trie_edge_labels);
     ret = clSetKernelArg(kern_grind, 3, sizeof(cl_mem), (void*)&d_trie_edge_targets);
     ret = clSetKernelArg(kern_grind, 4, sizeof(cl_mem), (void*)&d_dice);
-    ret = clSetKernelArg(kern_grind, 5, sizeof(cl_mem), (void*)&d_cell_neighbors);
-    ret = clSetKernelArg(kern_grind, 6, sizeof(cl_mem), (void*)&d_boards);
-    ret = clSetKernelArg(kern_grind, 7, sizeof(cl_mem), (void*)&d_scores);
-    ret = clSetKernelArg(kern_grind, 8, sizeof(cl_mem), (void*)&d_ages);
+    ret = clSetKernelArg(kern_grind, 5, sizeof(cl_mem), (void*)&d_num_dice);
+    ret = clSetKernelArg(kern_grind, 6, sizeof(cl_mem), (void*)&d_cell_neighbors);
+    ret = clSetKernelArg(kern_grind, 7, sizeof(cl_mem), (void*)&d_boards);
+    ret = clSetKernelArg(kern_grind, 8, sizeof(cl_mem), (void*)&d_scores);
+    ret = clSetKernelArg(kern_grind, 9, sizeof(cl_mem), (void*)&d_ages);
 
     size_t globalWorkSize[] = {NUM_CL_THREADS};
 
@@ -238,14 +259,15 @@ int main() {
     ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes, CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_labels, CL_TRUE, 0, edgeLabels.size()*sizeof(char), &edgeLabels[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_targets, CL_TRUE, 0, edgeTargets.size()*sizeof(unsigned short), &edgeTargets[0], 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, d_dice, CL_TRUE, 0, BOARD_SIZE*(DIE_FACES + 1)*sizeof(char), &dice[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_dice, CL_TRUE, 0, BOARD_SIZE*DIE_FACES*sizeof(char), &dice[0], 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, d_dice, CL_TRUE, 0, BOARD_SIZE*DIE_FACES*sizeof(char), &diceNum[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_cell_neighbors, CL_TRUE, 0, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), &boggle.neighbors, 0, NULL, NULL);
 
     ret = clEnqueueWriteBuffer(command_queue, d_ages, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &ages[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
 
-    bool software = false;
+    bool software = true; 
     
     unsigned short bestScore = 0;
     std::vector<unsigned short> bestBoard(BOARD_SIZE);
@@ -253,12 +275,13 @@ int main() {
     for (int i = 0; i < NUM_CL_ITERATIONS; i++) {
         if (!software) {
           ret = clEnqueueNDRangeKernel(command_queue, kern_grind, 1, NULL, globalWorkSize, NULL, 0, NULL, NULL);
+
           ret = clEnqueueReadBuffer(command_queue, d_scores, CL_TRUE, 0, NUM_CL_THREADS*sizeof(unsigned short), &scores[0], 0, NULL, NULL);
           ret = clEnqueueReadBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*BOARD_SIZE*sizeof(unsigned char), &boards[0], 0, NULL, NULL);
         } else {
           for (int j = 0; j < NUM_CL_THREADS; j++) {
             CLID = j;
-            grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(),
+            grind((const Node*)&clNodes[0], (int)clNodes.size(), &edgeLabels[0], &edgeTargets[0], dice.c_str(), &diceNum[0],
               (const char*)&boggle.neighbors, (unsigned char*)&boards[0], &scores[0], &ages[0]);
           }
         }
@@ -276,7 +299,7 @@ int main() {
         
         if (score >= bestScore) {
           bestScore = score;
-          std::copy(pc, pc + BOARD_SIZE, &bestBoard[0]);
+          std::copy(pc, pc + BOARD_SIZE, bestBoard.begin());
         } else {
           printf(" best: %d ", bestScore);
           for (int j = 0; j < BOARD_SIZE; j++) printf("%c", dice[bestBoard[j]]);

@@ -8,19 +8,20 @@
 
 #define NUM_MUTATE_TYPES      10
 
-#define MUTATE_SWAP_RANDOM    0
-#define MUTATE_SWAP_RANDOM3   1
-#define MUTATE_SWAP_RANDOM4   2
-#define MUTATE_SWAP_NEIGHBORS 3
-#define MUTATE_ROLL_FACE      4
-#define MUTATE_ROLL_FACE2     5
+#define MUTATE_SWAP_NEIGHBORS 0
+#define MUTATE_ROLL_FACE      1
+#define MUTATE_ROLL_FACE2     2
+
+#define MUTATE_SWAP_RANDOM    3
+#define MUTATE_SWAP_RANDOM3   4
+#define MUTATE_SWAP_RANDOM4   5
 #define MUTATE_ROLL_RANDOM    6
 #define MUTATE_ROLL_RANDOM2   7
 #define MUTATE_ROLL_RANDOM3   8
 #define MUTATE_SWAP_ROLL      9
 
 
-#define MAX_PLATEAU_AGE       1000
+#define MAX_PLATEAU_AGE       200
 
 //  trie node
 typedef struct
@@ -46,9 +47,9 @@ void shuffle_board(uchar* board, ulong* seed) {
 }
 
 //  creates a random board from the set of dice
-void make_random_board(uchar* board, ulong* seed) {
+void make_random_board(uchar* board, constant const uchar* g_num_dice, ulong* seed) {
   for (int i = 0; i < BOARD_SIZE; i++) {
-    board[i] = (unsigned char)(i*DIE_FACES + rnd(seed)%DIE_FACES);
+    board[i] = (unsigned char)(i*DIE_FACES + rnd(seed)%g_num_dice[i]);
   }
   shuffle_board(board, seed);
 }
@@ -62,6 +63,13 @@ void swap(unsigned char* arr, int i, int j) {
 uchar die_offs(uchar die) {
   return (die/DIE_FACES)*DIE_FACES;
 }
+
+void random_flip(uchar* board, int pos, constant const uchar* g_num_dice, ulong* seed) {
+  uchar offs = board[pos]/DIE_FACES;
+  int d = rnd(seed) % g_num_dice[offs];
+  board[pos] = d + offs*DIE_FACES;
+}
+
 
 //  evaluates the board score
 ushort eval_board(
@@ -170,6 +178,7 @@ kernel void grind(
   constant const char*    g_trie_edge_labels,
   constant const ushort*  g_trie_edge_targets,
   constant const char*    g_dice,
+  constant const uchar*   g_num_dice,
   constant const char*    g_cell_neighbors,
   global uchar*           g_boards,
   global ushort*          g_scores,
@@ -182,7 +191,7 @@ kernel void grind(
 
   if (g_ages[id] >= MAX_PLATEAU_AGE) {
     //  first iteration, or score plateaued, init fresh
-    make_random_board(board, &seed);
+    make_random_board(board, g_num_dice, &seed);
     for (int j = 0; j < BOARD_SIZE; j++) g_boards[id*BOARD_SIZE + j] = board[j];
     g_ages[id] = 0;
     best_score = 0;
@@ -192,8 +201,9 @@ kernel void grind(
   int pivot_cell = rnd(&seed) % BOARD_SIZE;
   int pivot_cell2 = rnd(&seed) % BOARD_SIZE;
 
-  const int MUTATE_STEPS[] = { BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, MAX_NEIGHBORS, 
-    DIE_FACES, DIE_FACES*DIE_FACES, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE };
+  const int MUTATE_STEPS[] = {  MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, 
+    BOARD_SIZE, BOARD_SIZE, BOARD_SIZE,
+    BOARD_SIZE, BOARD_SIZE, BOARD_SIZE, BOARD_SIZE };
   int nsteps = MUTATE_STEPS[mutateType];
 
   for (int i = 0; i < nsteps; i++) {
@@ -241,34 +251,26 @@ kernel void grind(
 
     case MUTATE_ROLL_RANDOM: {
       int c1 = rnd(&seed) % BOARD_SIZE;
-      int d = rnd(&seed) % DIE_FACES;
-      board[c1] = d + die_offs(board[c1]);
+      random_flip(board, c1, g_num_dice, &seed);
     } break;
     case MUTATE_ROLL_RANDOM2: {
       int c1 = rnd(&seed) % BOARD_SIZE;
       int c2 = rnd(&seed) % BOARD_SIZE;
-      int d1 = rnd(&seed) % DIE_FACES;
-      int d2 = rnd(&seed) % DIE_FACES;
-      board[c1] = d1 + die_offs(board[c1]);
-      board[c2] = d2 + die_offs(board[c2]);
+      random_flip(board, c1, g_num_dice, &seed);
+      random_flip(board, c2, g_num_dice, &seed);
     } break;
     case MUTATE_ROLL_RANDOM3: {
       int c1 = rnd(&seed) % BOARD_SIZE;
       int c2 = rnd(&seed) % BOARD_SIZE;
       int c3 = rnd(&seed) % BOARD_SIZE;
-      int d1 = rnd(&seed) % DIE_FACES;
-      int d2 = rnd(&seed) % DIE_FACES;
-      int d3 = rnd(&seed) % DIE_FACES;
-      board[c1] = d1 + die_offs(board[c1]);
-      board[c2] = d2 + die_offs(board[c2]);
-      board[c3] = d3 + die_offs(board[c3]);
+      random_flip(board, c1, g_num_dice, &seed);
+      random_flip(board, c2, g_num_dice, &seed);
+      random_flip(board, c3, g_num_dice, &seed);
     } break;
     case MUTATE_SWAP_ROLL: {
-      int d1 = rnd(&seed) % DIE_FACES;
-      int d2 = rnd(&seed) % DIE_FACES;
-      unsigned char tmp = board[i];
-      board[i] = d1 + die_offs(board[pivot_cell]);
-      board[pivot_cell] = d2 + die_offs(tmp);
+      swap(board, i, pivot_cell);
+      random_flip(board, i, g_num_dice, &seed);
+      random_flip(board, pivot_cell, g_num_dice, &seed);
     } break;
     default: {}
     }
