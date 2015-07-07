@@ -1,0 +1,1 @@
+OpenCL implementation of the Boggle grinder
