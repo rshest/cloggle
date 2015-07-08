@@ -171,7 +171,6 @@ int main() {
         nodes.push_back(&n); 
     });
     const int numNodes = (int)nodes.size();
-    const int genePoolSize = GENE_POOL_SIZE;
     
     //  create device-side data structures
     std::vector<char> edgeLabels;
@@ -203,14 +202,12 @@ int main() {
 
     static_assert(sizeof(BoardCL) == 32, "BoardCL sizeof must be 32");
 
-
     cl_mem d_trie_nodes         = clCreateBuffer(context, CL_MEM_READ_ONLY, nodes.size()*sizeof(TrieNodeCL), NULL, &ret);
     cl_mem d_trie_edge_labels   = clCreateBuffer(context, CL_MEM_READ_ONLY, edgeLabels.size()*sizeof(char), NULL, &ret);
     cl_mem d_trie_edge_targets  = clCreateBuffer(context, CL_MEM_READ_ONLY, edgeTargets.size()*sizeof(unsigned short), NULL, &ret);
     cl_mem d_dice               = clCreateBuffer(context, CL_MEM_READ_ONLY, BOARD_SIZE*DIE_FACES*sizeof(unsigned char), NULL, &ret);
     cl_mem d_num_dice           = clCreateBuffer(context, CL_MEM_READ_ONLY, BOARD_SIZE*DIE_FACES*sizeof(unsigned char), NULL, &ret);
     cl_mem d_cell_neighbors     = clCreateBuffer(context, CL_MEM_READ_ONLY, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), NULL, &ret);
-    
     cl_mem d_boards             = clCreateBuffer(context, CL_MEM_READ_WRITE, NUM_CL_THREADS*sizeof(BoardCL), NULL, &ret);
 
     std::string kernelCode = loadFile("res/cloggle.cl");
@@ -229,7 +226,6 @@ int main() {
     }
 
     cl_kernel kern_grind = clCreateKernel(program, "grind", &ret);
-
     ret = clSetKernelArg(kern_grind, 0, sizeof(cl_mem), (void*)&d_trie_nodes);
     ret = clSetKernelArg(kern_grind, 1, sizeof(int),    (void*)&numNodes);
     ret = clSetKernelArg(kern_grind, 2, sizeof(cl_mem), (void*)&d_trie_edge_labels);
@@ -239,12 +235,11 @@ int main() {
     ret = clSetKernelArg(kern_grind, 6, sizeof(cl_mem), (void*)&d_cell_neighbors);
     ret = clSetKernelArg(kern_grind, 7, sizeof(cl_mem), (void*)&d_boards);
 
-    size_t globalWorkSize[] = {NUM_CL_THREADS};
-
     std::vector<BoardCL> boards(NUM_CL_THREADS);
-    
     BoardCL bestBoard = { 0, MAX_PLATEAU_AGE };
     std::fill(boards.begin(), boards.end(), bestBoard);
+
+    size_t globalWorkSize[] = {NUM_CL_THREADS};
 
     ret = clEnqueueWriteBuffer(command_queue, d_trie_nodes, CL_TRUE, 0, nodes.size()*sizeof(TrieNodeCL), &clNodes[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_trie_edge_labels, CL_TRUE, 0, edgeLabels.size()*sizeof(char), &edgeLabels[0], 0, NULL, NULL);
@@ -252,7 +247,6 @@ int main() {
     ret = clEnqueueWriteBuffer(command_queue, d_dice, CL_TRUE, 0, BOARD_SIZE*DIE_FACES*sizeof(char), &dice[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_num_dice, CL_TRUE, 0, BOARD_SIZE*DIE_FACES*sizeof(char), &diceNum[0], 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, d_cell_neighbors, CL_TRUE, 0, (BOARD_SIZE*(MAX_NEIGHBORS + 1))*sizeof(char), &boggle.neighbors, 0, NULL, NULL);
-
     ret = clEnqueueWriteBuffer(command_queue, d_boards, CL_TRUE, 0, NUM_CL_THREADS*sizeof(BoardCL), &boards[0], 0, NULL, NULL);
     
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -290,9 +284,7 @@ int main() {
 
     ret = clFlush(command_queue);
     ret = clFinish(command_queue);
-
     ret = clReleaseKernel(kern_grind);
-
     ret = clReleaseProgram(program);
     ret = clReleaseMemObject(d_trie_nodes);
     ret = clReleaseMemObject(d_trie_edge_labels);
@@ -300,6 +292,5 @@ int main() {
     ret = clReleaseMemObject(d_cell_neighbors);
     ret = clReleaseCommandQueue(command_queue);
     ret = clReleaseContext(context);
-
     return 0;
 }
