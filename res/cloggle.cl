@@ -1,4 +1,3 @@
-#define GENE_POOL_SIZE 10
 #define MAX_NEIGHBORS 8
 #define MAX_WORD_LEN 16
 #define BOARD_SIDE 5
@@ -76,7 +75,6 @@ void random_flip(uchar* board, int pos, constant const uchar* c_num_dice, ulong*
   int d = rnd(seed) % c_num_dice[offs];
   board[pos] = d + offs*DIE_FACES;
 }
-
 
 //  evaluates the board score
 ushort eval_board(
@@ -196,7 +194,6 @@ kernel void grind(
     }
 
     switch (mutateType) {
-    
     case MUTATE_SWAP_RANDOM: {
       swap(board, i, pivot_cell);
     } break;
