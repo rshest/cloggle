@@ -14,9 +14,8 @@
 #define MUTATE_ROLL_FACE2     3
 #define MUTATE_SWAP_ROLL      4
 
-#define MAX_SWAPS             9
-#define MAX_ROLLS             9
-
+#define MAX_SWAPS             11
+#define MAX_ROLLS             11
 
 #define MAX_PLATEAU_AGE       1000
 
@@ -188,7 +187,7 @@ kernel void grind(
   int pivot_cell = rnd_cell(&seed);
   int pivot_cell2 = rnd_cell(&seed);
 
-  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, 32};
+  const int MUTATE_STEPS[] = { BOARD_SIZE, MAX_NEIGHBORS, DIE_FACES, DIE_FACES*DIE_FACES, BOARD_SIZE };
   int nsteps = MUTATE_STEPS[mutateType];
 
   for (int i = 0; i < nsteps; i++) {
@@ -208,7 +207,9 @@ kernel void grind(
       }
     } break;
     case MUTATE_ROLL_FACE: {
-      board[pivot_cell] = i + die_offs(board[pivot_cell]);
+      int cface = i % DIE_FACES;
+      board[pivot_cell] = cface + die_offs(board[pivot_cell]);
+      pivot_cell = (cface == DIE_FACES - 1) ? rnd_cell(&seed) : pivot_cell;
     } break;
     case MUTATE_ROLL_FACE2: {
       int d1 = i % DIE_FACES; 
